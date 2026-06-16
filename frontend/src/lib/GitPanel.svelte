@@ -24,7 +24,7 @@
     isLoadingChanges = true;
     try {
       const res = await fetch('/api/git/changes');
-      changes = await res.json();
+      changes = (await res.json()) || [];
     } catch (err) {
       console.error("Failed to load changes", err);
     } finally {
@@ -36,7 +36,7 @@
     isLoadingCommits = true;
     try {
       const res = await fetch('/api/git/log');
-      commits = await res.json();
+      commits = (await res.json()) || [];
     } catch (err) {
       console.error("Failed to load commits", err);
     } finally {
@@ -54,7 +54,7 @@
       isLoadingCommitFiles = true;
       try {
         const res = await fetch(`/api/git/commit/files?commit=${hash}`);
-        commitFiles = { ...commitFiles, [hash]: await res.json() };
+        commitFiles = { ...commitFiles, [hash]: (await res.json()) || [] };
       } catch (err) {
         console.error("Failed to load commit files", hash, err);
       } finally {

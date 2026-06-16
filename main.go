@@ -499,7 +499,7 @@ func handleGitBranches(w http.ResponseWriter, r *http.Request) {
 
 	// Get all branches
 	branchesOut, err := runGitCommand("branch", "-a", "--format=%(refname:short)")
-	var branches []string
+	branches := []string{}
 	if err == nil {
 		lines := strings.Split(branchesOut, "\n")
 		seen := make(map[string]bool)
@@ -590,7 +590,7 @@ func handleGitChanges(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	var changes []GitChange
+	changes := []GitChange{}
 	lines := strings.Split(statusOut, "\n")
 	for _, line := range lines {
 		if len(line) < 3 {
@@ -758,7 +758,7 @@ func handleGitLog(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	var commits []CommitInfo
+	commits := []CommitInfo{}
 	lines := strings.Split(logOut, "\n")
 	for _, line := range lines {
 		line = strings.TrimSpace(line)
@@ -802,7 +802,7 @@ func handleGitCommitFiles(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	var changes []GitChange
+	changes := []GitChange{}
 	lines := strings.Split(out, "\n")
 	for _, line := range lines {
 		line = strings.TrimSpace(line)
