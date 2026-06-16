@@ -15,11 +15,6 @@
   let showCommits = $state(true);
   let showBranches = $state(false);
 
-  // Expanded commit hash for detailed changed files list
-  let expandedCommit = $state(null);
-  let commitFiles = $state({}); // commitHash -> array of changed files
-  let isLoadingCommitFiles = $state(false);
-
   async function loadChanges() {
     isLoadingChanges = true;
     try {
@@ -41,25 +36,6 @@
       console.error("Failed to load commits", err);
     } finally {
       isLoadingCommits = false;
-    }
-  }
-
-  async function toggleCommit(hash) {
-    if (expandedCommit === hash) {
-      expandedCommit = null;
-      return;
-    }
-    expandedCommit = hash;
-    if (!commitFiles[hash]) {
-      isLoadingCommitFiles = true;
-      try {
-        const res = await fetch(`/api/git/commit/files?commit=${hash}`);
-        commitFiles = { ...commitFiles, [hash]: (await res.json()) || [] };
-      } catch (err) {
-        console.error("Failed to load commit files", hash, err);
-      } finally {
-        isLoadingCommitFiles = false;
-      }
     }
   }
 
@@ -146,10 +122,13 @@
         {:else}
           <div class="commits-list">
             {#each commits as commit}
-              <div class="commit-item" class:expanded={expandedCommit === commit.hash}>
+              <div 
+                class="commit-item" 
+                class:active={store.activePath === `commit:${commit.hash}`}
+              >
                 <!-- svelte-ignore a11y_click_events_have_key_events -->
                 <!-- svelte-ignore a11y_no_static_element_interactions -->
-                <div class="commit-summary" onclick={() => toggleCommit(commit.hash)}>
+                <div class="commit-summary" onclick={() => store.openCommit(commit.hash)}>
                   <div class="commit-header">
                     <span class="commit-author">{commit.author}</span>
                     <span class="commit-hash">{commit.hash.slice(0, 7)}</span>
@@ -157,32 +136,6 @@
                   <div class="commit-msg">{commit.summary}</div>
                   <div class="commit-date">{commit.relative}</div>
                 </div>
-
-                {#if expandedCommit === commit.hash}
-                  <div class="commit-details">
-                    <div class="details-meta">
-                      <div><strong>Author:</strong> {commit.author} &lt;{commit.email}&gt;</div>
-                      <div><strong>Date:</strong> {commit.date}</div>
-                    </div>
-                    <div class="details-files">
-                      <div class="files-title">Files Changed:</div>
-                      {#if isLoadingCommitFiles}
-                        <div class="loading-text">Loading files...</div>
-                      {:else if commitFiles[commit.hash]}
-                        {#each commitFiles[commit.hash] as file}
-                          <!-- svelte-ignore a11y_click_events_have_key_events -->
-                          <!-- svelte-ignore a11y_no_static_element_interactions -->
-                          <div class="commit-file-row" onclick={() => store.openDiff(file.path, `${commit.hash}^`, commit.hash, `${file.path.split('/').pop()} (${commit.hash.slice(0, 7)})`)}>
-                            <span class="status-marker" style="color: {getStatusColor(file.status)}">
-                              {file.status}
-                            </span>
-                            <span class="file-path-link">{file.path}</span>
-                          </div>
-                        {/each}
-                      {/if}
-                    </div>
-                  </div>
-                {/if}
               </div>
             {/each}
           </div>
@@ -380,60 +333,10 @@
     font-size: 11px;
   }
 
-  .commit-details {
-    background-color: #141416;
-    padding: 10px 16px;
-    border-top: 1px solid #24242b;
-    font-size: 12px;
-  }
-
-  .details-meta {
-    color: #8e8e93;
-    display: flex;
-    flex-direction: column;
-    gap: 4px;
-    margin-bottom: 10px;
-    font-size: 11px;
-  }
-
-  .details-files {
-    display: flex;
-    flex-direction: column;
-    gap: 6px;
-  }
-
-  .files-title {
-    font-weight: bold;
-    color: #e3e3e6;
-    font-size: 11px;
-    margin-bottom: 2px;
-  }
-
-  .commit-file-row {
-    display: flex;
-    align-items: center;
-    gap: 8px;
-    cursor: pointer;
-    padding: 2px 0;
-  }
-
-  .commit-file-row:hover .file-path-link {
-    text-decoration: underline;
-    color: #e3e3e6;
-  }
-
-  .status-marker {
-    font-family: monospace;
-    font-weight: bold;
-    font-size: 11px;
-    width: 12px;
-    text-align: center;
-  }
-
-  .file-path-link {
-    color: #a1a1aa;
-    font-size: 11px;
-    word-break: break-all;
+  .commit-item.active .commit-summary {
+    background-color: rgba(99, 102, 241, 0.12);
+    border-left: 2px solid #6366f1;
+    padding-left: 14px;
   }
 
   /* Branches list */

@@ -285,3 +285,52 @@ func GetCommitFiles(commit string) ([]GitChange, error) {
 
 	return changes, nil
 }
+
+type CommitDetails struct {
+	Hash     string      `json:"hash"`
+	Author   string      `json:"author"`
+	Email    string      `json:"email"`
+	Date     string      `json:"date"`
+	Relative string      `json:"relative"`
+	Subject  string      `json:"subject"`
+	Body     string      `json:"body"`
+	Files    []GitChange `json:"files"`
+}
+
+func GetCommitDetails(hash string) (CommitDetails, error) {
+	// 1. Get info formatted
+	// Use %H (hash), %an (author name), %ae (author email), %ad (author date), %ar (relative date), %s (subject), %b (body)
+	formatStr := "%H|%an|%ae|%ad|%ar|%s|%b"
+	out, err := RunGitCommand("show", "-s", "--format="+formatStr, hash)
+	if err != nil {
+		return CommitDetails{}, err
+	}
+
+	parts := strings.SplitN(out, "|", 7)
+	if len(parts) < 6 {
+		return CommitDetails{}, fmt.Errorf("invalid commit info output: %s", out)
+	}
+
+	body := ""
+	if len(parts) == 7 {
+		body = parts[6]
+	}
+
+	// 2. Get files changed
+	files, err := GetCommitFiles(hash)
+	if err != nil {
+		files = []GitChange{}
+	}
+
+	return CommitDetails{
+		Hash:     parts[0],
+		Author:   parts[1],
+		Email:    parts[2],
+		Date:     parts[3],
+		Relative: parts[4],
+		Subject:  parts[5],
+		Body:     body,
+		Files:    files,
+	}, nil
+}
+

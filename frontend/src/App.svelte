@@ -172,10 +172,21 @@
         <div
           class="tab"
           class:active={store.activePath === file.path}
-          onclick={() => store.openFile(file.path)}
+          onclick={() => {
+            if (file.isCommit) {
+              store.activeDiff = null;
+              store.activePath = file.path;
+            } else {
+              store.openFile(file.path);
+            }
+          }}
           title={file.path}
         >
-          <Icon name="file" size={14} color={getFileColor(file.name)} />
+          {#if file.isCommit}
+            <Icon name="gitCommit" size={14} color="#fbbf24" />
+          {:else}
+            <Icon name="file" size={14} color={getFileColor(file.name)} />
+          {/if}
           <span class="tab-name">{file.name}</span>
           <!-- svelte-ignore a11y_click_events_have_key_events -->
           <!-- svelte-ignore a11y_no_static_element_interactions -->

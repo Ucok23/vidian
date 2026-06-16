@@ -59,6 +59,7 @@ func Start(cfg *config.Config, embeddedFiles fs.FS) {
 	http.HandleFunc("/api/git/blame", handleGitBlame)
 	http.HandleFunc("/api/git/log", handleGitLog)
 	http.HandleFunc("/api/git/commit/files", handleGitCommitFiles)
+	http.HandleFunc("/api/git/commit", handleGitCommit)
 	http.Handle("/api/lsp", websocket.Handler(lsp.HandleLSP))
 
 	// Register Frontend serving
@@ -507,4 +508,25 @@ func handleGitCommitFiles(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	json.NewEncoder(w).Encode(changes)
+}
+
+func handleGitCommit(w http.ResponseWriter, r *http.Request) {
+	setupCORS(w, r)
+	if r.Method == "OPTIONS" {
+		return
+	}
+
+	hash := r.URL.Query().Get("hash")
+	if hash == "" {
+		http.Error(w, "Missing hash parameter", http.StatusBadRequest)
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	details, err := git.GetCommitDetails(hash)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	json.NewEncoder(w).Encode(details)
 }

@@ -5,6 +5,7 @@
 
   import MarkdownPreview from './MarkdownPreview.svelte';
   import Icon from './Icon.svelte';
+  import CommitViewer from './CommitViewer.svelte';
 
   let editorContainer = $state(null);
   let editor = $state.raw(null);
@@ -293,6 +294,9 @@
     <div class="diff-editor-container-outer">
       <div bind:this={diffContainer} class="diff-editor-container-inner"></div>
     </div>
+  {:else if store.activeFile?.isCommit}
+    <!-- Commit Viewer -->
+    <CommitViewer commit={store.activeFile.commitInfo} />
   {:else if !store.activePath}
     <!-- Empty State / Welcome Screen -->
     <div class="welcome-screen">
@@ -356,7 +360,7 @@
   <!-- The split workspace container -->
   <div 
     class="editor-split-container"
-    style="display: {store.activePath && !store.activeFile?.isBinary && !store.activeFile?.isImage ? 'flex' : 'none'}"
+    style="display: {store.activePath && !store.activeFile?.isBinary && !store.activeFile?.isImage && !store.activeFile?.isCommit ? 'flex' : 'none'}"
   >
     <div 
       bind:this={editorContainer} 
@@ -370,7 +374,7 @@
     {/if}
   </div>
 
-  {#if store.activePath && !store.activeFile?.isBinary && !store.activeFile?.isImage && isMarkdown}
+  {#if store.activePath && !store.activeFile?.isBinary && !store.activeFile?.isImage && !store.activeFile?.isCommit && isMarkdown}
     <!-- Floating action button for markdown preview -->
     <button 
       class="preview-toggle-btn"

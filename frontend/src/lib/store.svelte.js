@@ -284,6 +284,31 @@ class AppStore {
       console.error("Failed to load diff contents", path, err);
     }
   }
+
+  async openCommit(hash) {
+    this.activeDiff = null;
+    const tabPath = `commit:${hash}`;
+    // Check if already open
+    const exists = this.openFiles.some(f => f.path === tabPath);
+    if (!exists) {
+      try {
+        const res = await fetch(`${API_BASE}/api/git/commit?hash=${hash}`);
+        if (res.ok) {
+          const details = await res.json();
+          const commitTab = {
+            name: `Commit: ${hash.slice(0, 7)}`,
+            path: tabPath,
+            isCommit: true,
+            commitInfo: details
+          };
+          this.openFiles.push(commitTab);
+        }
+      } catch (err) {
+        console.error("Failed to load commit details", hash, err);
+      }
+    }
+    this.activePath = tabPath;
+  }
 }
 
 // Singleton store

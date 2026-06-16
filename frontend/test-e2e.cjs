@@ -109,14 +109,12 @@ async function runTest() {
       // Click first commit to expand details
       const firstCommit = await page.$('.commit-summary');
       await firstCommit.click();
-      console.log("Expanded first commit details.");
-
-      // Wait for files changed list
-      await page.waitForSelector('.commit-file-row', { timeout: 3000 });
-      console.log("Loaded commit file rows.");
-
+      // Wait for files changed list in the main area commit viewer
+      await page.waitForSelector('.commit-file-item', { timeout: 3000 });
+      console.log("Loaded commit file items in main view.");
+ 
       // Click a file to open Diff view
-      const firstCommitFile = await page.$('.commit-file-row');
+      const firstCommitFile = await page.$('.commit-file-item');
       await firstCommitFile.click();
       console.log("Opened file diff view.");
 
