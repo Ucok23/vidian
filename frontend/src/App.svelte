@@ -1,0 +1,459 @@
+<script>
+  import { onMount } from 'svelte';
+  import { store } from './lib/store.svelte.js';
+  import Icon from './lib/Icon.svelte';
+  import Explorer from './lib/Explorer.svelte';
+  import Search from './lib/Search.svelte';
+  import Editor from './lib/Editor.svelte';
+  import QuickOpen from './lib/QuickOpen.svelte';
+  import BranchSelector from './lib/BranchSelector.svelte';
+
+  let sidebarVisible = $state(true);
+  let sidebarWidth = $state(260);
+  let isResizing = $state(false);
+
+  // Resize logic
+  function startResize(e) {
+    e.preventDefault();
+    isResizing = true;
+    window.addEventListener('mousemove', handleResize);
+    window.addEventListener('mouseup', stopResize);
+  }
+
+  function handleResize(e) {
+    if (isResizing) {
+      // Keep width within a reasonable range
+      sidebarWidth = Math.max(160, Math.min(500, e.clientX - 48)); // 48px is the activity bar width
+    }
+  }
+
+  function stopResize() {
+    isResizing = false;
+    window.removeEventListener('mousemove', handleResize);
+    window.removeEventListener('mouseup', stopResize);
+  }
+
+  function toggleSidebarTab(tab) {
+    if (store.sidebarTab === tab) {
+      sidebarVisible = !sidebarVisible;
+    } else {
+      store.sidebarTab = tab;
+      sidebarVisible = true;
+    }
+  }
+
+  // Handle global shortcuts
+  function handleKeyDown(e) {
+    // Ctrl+B toggles sidebar
+    if ((e.ctrlKey || e.metaKey) && e.key === 'b') {
+      e.preventDefault();
+      sidebarVisible = !sidebarVisible;
+    }
+
+    // Ctrl+Shift+F focus search
+    if ((e.ctrlKey || e.metaKey) && e.shiftKey && e.key === 'F') {
+      e.preventDefault();
+      store.sidebarTab = 'search';
+      sidebarVisible = true;
+      // Focus search input
+      setTimeout(() => {
+        const input = document.querySelector('.search-box input');
+        input?.focus();
+      }, 50);
+    }
+  }
+
+  function getFileColor(name) {
+    const ext = name.split('.').pop().toLowerCase();
+    const colors = {
+      js: '#f7df1e',
+      jsx: '#61dafb',
+      ts: '#3178c6',
+      tsx: '#61dafb',
+      html: '#e34c26',
+      css: '#264de4',
+      json: '#cbcb41',
+      md: '#0891b2',
+      go: '#00add8',
+      py: '#3572a5',
+      rs: '#dea584',
+      svelte: '#ff3e00'
+    };
+    return colors[ext] || '#9ca3af';
+  }
+
+  onMount(async () => {
+    await store.init();
+    window.addEventListener('keydown', handleKeyDown);
+    return () => {
+      window.removeEventListener('keydown', handleKeyDown);
+    };
+  });
+</script>
+
+<div class="app-container">
+  <!-- Activity Bar (Leftmost thin bar) -->
+  <div class="activity-bar">
+    <div class="top-items">
+      <!-- svelte-ignore a11y_click_events_have_key_events -->
+      <!-- svelte-ignore a11y_no_static_element_interactions -->
+      <div
+        class="activity-btn"
+        class:active={sidebarVisible && store.sidebarTab === 'explorer'}
+        onclick={() => toggleSidebarTab('explorer')}
+        title="Explorer (Ctrl+B)"
+      >
+        <Icon name="files" size={24} />
+      </div>
+
+      <!-- svelte-ignore a11y_click_events_have_key_events -->
+      <!-- svelte-ignore a11y_no_static_element_interactions -->
+      <div
+        class="activity-btn"
+        class:active={sidebarVisible && store.sidebarTab === 'search'}
+        onclick={() => toggleSidebarTab('search')}
+        title="Search (Ctrl+Shift+F)"
+      >
+        <Icon name="search" size={24} />
+      </div>
+    </div>
+
+    <div class="bottom-items">
+      <div class="activity-btn" title="About Vidian">
+        <Icon name="info" size={22} color="#8e8e93" />
+      </div>
+      <div class="activity-btn" title="Settings">
+        <Icon name="settings" size={22} color="#8e8e93" />
+      </div>
+    </div>
+  </div>
+
+  <!-- Sidebar Panel -->
+  {#if sidebarVisible}
+    <div class="sidebar" style="width: {sidebarWidth}px">
+      {#if store.sidebarTab === 'explorer'}
+        <Explorer />
+      {:else if store.sidebarTab === 'search'}
+        <Search />
+      {/if}
+    </div>
+
+    <!-- svelte-ignore a11y_no_static_element_interactions -->
+    <div
+      class="resize-handle"
+      class:resizing={isResizing}
+      onmousedown={startResize}
+    ></div>
+  {/if}
+
+  <!-- Main View Area -->
+  <div class="main-area">
+    <!-- Tabs Bar -->
+    <div class="tabs-bar">
+      {#each store.openFiles as file (file.path)}
+        <!-- svelte-ignore a11y_click_events_have_key_events -->
+        <!-- svelte-ignore a11y_no_static_element_interactions -->
+        <div
+          class="tab"
+          class:active={store.activePath === file.path}
+          onclick={() => store.openFile(file.path)}
+          title={file.path}
+        >
+          <Icon name="file" size={14} color={getFileColor(file.name)} />
+          <span class="tab-name">{file.name}</span>
+          <!-- svelte-ignore a11y_click_events_have_key_events -->
+          <!-- svelte-ignore a11y_no_static_element_interactions -->
+          <span
+            class="close-icon"
+            onclick={(e) => {
+              e.stopPropagation();
+              store.closeFile(file.path);
+            }}
+          >
+            <Icon name="close" size={12} />
+          </span>
+        </div>
+      {/each}
+    </div>
+
+    <!-- Editor Area -->
+    <div class="editor-container">
+      <Editor />
+    </div>
+
+    <!-- Status Bar -->
+    <div class="status-bar">
+      <div class="status-left">
+        <div class="status-item bg-indigo">
+          <Icon name="folder" size={12} color="#ffffff" />
+          <span>{store.workspace.name || 'loading...'}</span>
+        </div>
+        {#if store.git.isGit}
+          <!-- svelte-ignore a11y_click_events_have_key_events -->
+          <!-- svelte-ignore a11y_no_static_element_interactions -->
+          <div class="status-item clickable bg-indigo" onclick={() => store.branchSelectorVisible = true} title="Switch branch">
+            <Icon name="branch" size={12} color="#ffffff" />
+            <span>{store.git.currentBranch}</span>
+          </div>
+        {/if}
+        <div class="status-item clickable" onclick={() => store.init()}>
+          <Icon name="refresh" size={12} />
+          <span>Synchronized</span>
+        </div>
+        {#if store.activePath}
+          <div class="status-item text-dimmed">
+            <span>{store.activePath}</span>
+          </div>
+        {/if}
+      </div>
+
+      <div class="status-right">
+        {#if store.activePath && !store.activeFile?.isBinary && !store.activeFile?.isImage}
+          <div class="status-item">
+            <span>Ln {store.cursorPos.line}, Col {store.cursorPos.column}</span>
+          </div>
+        {/if}
+        <div class="status-item">
+          <span>UTF-8</span>
+        </div>
+        <div class="status-item">
+          <span>{store.activeLanguage}</span>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Quick Open Palette -->
+  <QuickOpen />
+  <BranchSelector />
+</div>
+
+<style>
+  .app-container {
+    display: flex;
+    width: 100vw;
+    height: 100vh;
+    background-color: #121214;
+    overflow: hidden;
+  }
+
+  /* Activity Bar Styling */
+  .activity-bar {
+    width: 48px;
+    height: 100%;
+    background-color: #16161a;
+    border-right: 1px solid #2d2d34;
+    display: flex;
+    flex-direction: column;
+    justify-content: space-between;
+    align-items: center;
+    padding: 8px 0;
+    flex-shrink: 0;
+  }
+
+  .activity-btn {
+    width: 48px;
+    height: 48px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    cursor: pointer;
+    position: relative;
+    color: #8e8e93;
+    transition: color 0.15s;
+  }
+
+  .activity-btn:hover {
+    color: #e3e3e6;
+  }
+
+  .activity-btn.active {
+    color: #6366f1;
+  }
+
+  .activity-btn.active::before {
+    content: '';
+    position: absolute;
+    left: 0;
+    top: 6px;
+    bottom: 6px;
+    width: 3px;
+    background-color: #6366f1;
+    border-radius: 0 4px 4px 0;
+  }
+
+  /* Sidebar Styling */
+  .sidebar {
+    height: 100%;
+    background-color: #1b1b20;
+    border-right: 1px solid #2d2d34;
+    display: flex;
+    flex-direction: column;
+    flex-shrink: 0;
+    overflow: hidden;
+  }
+
+  /* Resize Handle */
+  .resize-handle {
+    width: 4px;
+    height: 100%;
+    cursor: col-resize;
+    background-color: transparent;
+    transition: background-color 0.2s;
+    z-index: 10;
+    margin-left: -2px;
+    margin-right: -2px;
+    flex-shrink: 0;
+  }
+
+  .resize-handle:hover, .resize-handle.resizing {
+    background-color: #6366f1;
+  }
+
+  /* Main View Area Styling */
+  .main-area {
+    display: flex;
+    flex-direction: column;
+    flex: 1;
+    height: 100%;
+    overflow: hidden;
+    background-color: #1e1e24;
+  }
+
+  /* Tabs Bar Styling */
+  .tabs-bar {
+    height: 35px;
+    background-color: #141416;
+    border-bottom: 1px solid #2d2d34;
+    display: flex;
+    overflow-x: auto;
+    overflow-y: hidden;
+    flex-shrink: 0;
+  }
+
+  .tabs-bar::-webkit-scrollbar {
+    height: 3px;
+  }
+  .tabs-bar::-webkit-scrollbar-thumb {
+    background: rgba(255, 255, 255, 0.05);
+  }
+
+  .tab {
+    display: flex;
+    align-items: center;
+    padding: 0 16px;
+    height: 100%;
+    border-right: 1px solid #2d2d34;
+    background-color: #141416;
+    cursor: pointer;
+    font-size: 13px;
+    color: #8e8e93;
+    gap: 8px;
+    user-select: none;
+    transition: background-color 0.15s, color 0.15s;
+    min-width: 120px;
+    max-width: 200px;
+    position: relative;
+  }
+
+  .tab:hover {
+    background-color: rgba(255, 255, 255, 0.02);
+    color: #e3e3e6;
+  }
+
+  .tab.active {
+    background-color: #1e1e24;
+    color: #ffffff;
+  }
+
+  .tab.active::after {
+    content: '';
+    position: absolute;
+    bottom: -1px;
+    left: 0;
+    right: 0;
+    height: 2px;
+    background-color: #6366f1;
+  }
+
+  .tab-name {
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    flex: 1;
+  }
+
+  .close-icon {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 16px;
+    height: 16px;
+    border-radius: 4px;
+    color: transparent;
+    transition: color 0.1s, background-color 0.1s;
+  }
+
+  .tab:hover .close-icon, .tab.active .close-icon {
+    color: #8e8e93;
+  }
+
+  .close-icon:hover {
+    background-color: rgba(255, 255, 255, 0.1);
+    color: #ffffff !important;
+  }
+
+  /* Editor Container */
+  .editor-container {
+    flex: 1;
+    overflow: hidden;
+    position: relative;
+  }
+
+  /* Status Bar Styling */
+  .status-bar {
+    height: 22px;
+    background-color: #16161a;
+    border-top: 1px solid #2d2d34;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 0 8px;
+    font-size: 11px;
+    color: #8e8e93;
+    user-select: none;
+    flex-shrink: 0;
+  }
+
+  .status-left, .status-right {
+    display: flex;
+    align-items: center;
+    height: 100%;
+  }
+
+  .status-item {
+    display: flex;
+    align-items: center;
+    height: 100%;
+    padding: 0 8px;
+    gap: 5px;
+  }
+
+  .status-item.clickable {
+    cursor: pointer;
+  }
+  .status-item.clickable:hover {
+    background-color: rgba(255, 255, 255, 0.05);
+    color: #ffffff;
+  }
+
+  .bg-indigo {
+    background-color: #6366f1;
+    color: #ffffff;
+    font-weight: 500;
+  }
+
+  .text-dimmed {
+    color: #5d5d66;
+  }
+</style>

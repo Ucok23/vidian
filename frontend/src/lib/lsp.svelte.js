@@ -1,0 +1,229 @@
+import monaco from './monaco.js';
+import { store } from './store.svelte.js';
+
+let ws = null;
+let activeLang = null; // 'go', 'python', 'typescript', 'rust'
+let requestId = 0;
+const pendingRequests = new Map();
+let isInitialized = false;
+
+// List of file extension to language ID mapping
+const extMapping = {
+  go: 'go',
+  py: 'python',
+  ts: 'typescript',
+  js: 'javascript',
+  jsx: 'javascript',
+  tsx: 'typescript',
+  rs: 'rust'
+};
+
+export function initLsp(workspacePath, filename) {
+  if (!filename) return;
+  const ext = filename.split('.').pop().toLowerCase();
+  const lspLang = extMapping[ext];
+
+  // Only connect for supported languages
+  const supportedLangs = ['go', 'python', 'typescript', 'javascript', 'rust'];
+  if (!lspLang || !supportedLangs.includes(lspLang)) {
+    if (ws) {
+      ws.close();
+      ws = null;
+      activeLang = null;
+      isInitialized = false;
+    }
+    return;
+  }
+
+  // If already connected for the same language, do nothing
+  if (ws && activeLang === lspLang && ws.readyState === WebSocket.OPEN) {
+    return;
+  }
+
+  // Close existing connection
+  if (ws) {
+    ws.close();
+    isInitialized = false;
+    pendingRequests.clear();
+  }
+
+  activeLang = lspLang;
+  const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+  const url = `${protocol}//${window.location.host}/api/lsp?lang=${lspLang}`;
+  ws = new WebSocket(url);
+
+  ws.onmessage = (event) => {
+    try {
+      const msg = JSON.parse(event.data);
+      if (msg.id !== undefined) {
+        const pending = pendingRequests.get(msg.id);
+        if (pending) {
+          pendingRequests.delete(msg.id);
+          if (msg.error) {
+            pending.reject(msg.error);
+          } else {
+            pending.resolve(msg.result);
+          }
+        }
+      } else {
+        // Notifications (like diagnostics)
+        if (msg.method === 'textDocument/publishDiagnostics') {
+          handleDiagnostics(msg.params);
+        }
+      }
+    } catch (err) {
+      console.error('Failed to parse LSP message', err);
+    }
+  };
+
+  ws.onopen = async () => {
+    try {
+      // Send initialize request to language server
+      const initResult = await sendRequest('initialize', {
+        processId: null,
+        rootUri: `file://${workspacePath}`,
+        capabilities: {
+          textDocument: {
+            hover: { contentFormat: ['markdown', 'plaintext'] },
+            definition: { dynamicRegistration: true }
+          }
+        }
+      });
+
+      sendNotification('initialized', {});
+      isInitialized = true;
+      console.log(`LSP (${lspLang}) initialized successfully`, initResult);
+
+      // Trigger didOpen for the currently active file
+      if (store.activeFile) {
+        sendDidOpen(store.activeFile.path, store.activeFile.content, store.activeFile.name);
+      }
+    } catch (err) {
+      console.error(`LSP (${lspLang}) initialization failed`, err);
+    }
+  };
+
+  ws.onerror = (err) => {
+    console.error(`LSP (${lspLang}) WebSocket error`, err);
+  };
+}
+
+export function sendRequest(method, params) {
+  return new Promise((resolve, reject) => {
+    if (!ws || ws.readyState !== WebSocket.OPEN) {
+      reject(new Error('LSP Connection is not open'));
+      return;
+    }
+    const id = ++requestId;
+    pendingRequests.set(id, { resolve, reject });
+    ws.send(JSON.stringify({
+      jsonrpc: '2.0',
+      id,
+      method,
+      params
+    }));
+  });
+}
+
+export function sendNotification(method, params) {
+  if (!ws || ws.readyState !== WebSocket.OPEN) return;
+  ws.send(JSON.stringify({
+    jsonrpc: '2.0',
+    method,
+    params
+  }));
+}
+
+export function sendDidOpen(path, content, filename) {
+  if (!isInitialized || !filename) return;
+  const ext = filename.split('.').pop().toLowerCase();
+  const languageId = extMapping[ext] || 'plaintext';
+
+  sendNotification('textDocument/didOpen', {
+    textDocument: {
+      uri: `file://${store.workspace.path}/${path}`,
+      languageId: languageId,
+      version: 1,
+      text: content
+    }
+  });
+}
+
+function handleDiagnostics(params) {
+  const { uri, diagnostics } = params;
+  
+  const model = monaco.editor.getModel(monaco.Uri.parse(uri));
+  if (model) {
+    const markers = diagnostics.map(d => ({
+      severity: d.severity === 1 ? monaco.MarkerSeverity.Error : monaco.MarkerSeverity.Warning,
+      message: d.message,
+      startLineNumber: d.range.start.line + 1,
+      startColumn: d.range.start.character + 1,
+      endLineNumber: d.range.end.line + 1,
+      endColumn: d.range.end.character + 1
+    }));
+    monaco.editor.setModelMarkers(model, 'lsp', markers);
+  }
+}
+
+// Register Monaco providers for all supported languages
+export function registerLspProviders() {
+  const languages = ['go', 'python', 'typescript', 'javascript', 'rust'];
+  
+  languages.forEach(lang => {
+    monaco.languages.registerHoverProvider(lang, {
+      async provideHover(model, position) {
+        if (!isInitialized || activeLang !== lang) return null;
+        try {
+          const res = await sendRequest('textDocument/hover', {
+            textDocument: { uri: model.uri.toString() },
+            position: { line: position.lineNumber - 1, character: position.column - 1 }
+          });
+          if (res && res.contents) {
+            let value = '';
+            if (typeof res.contents === 'string') {
+              value = res.contents;
+            } else if (res.contents.value) {
+              value = res.contents.value;
+            } else if (Array.isArray(res.contents)) {
+              value = res.contents.map(c => typeof c === 'string' ? c : c.value).join('\n\n');
+            }
+            return {
+              contents: [{ value }]
+            };
+          }
+        } catch (err) {
+          console.error(`LSP Hover failed for ${lang}`, err);
+        }
+        return null;
+      }
+    });
+
+    monaco.languages.registerDefinitionProvider(lang, {
+      async provideDefinition(model, position) {
+        if (!isInitialized || activeLang !== lang) return null;
+        try {
+          const res = await sendRequest('textDocument/definition', {
+            textDocument: { uri: model.uri.toString() },
+            position: { line: position.lineNumber - 1, character: position.column - 1 }
+          });
+          if (res) {
+            const locations = Array.isArray(res) ? res : [res];
+            return locations.map(loc => ({
+              uri: monaco.Uri.parse(loc.uri),
+              range: {
+                startLineNumber: loc.range.start.line + 1,
+                startColumn: loc.range.start.character + 1,
+                endLineNumber: loc.range.end.line + 1,
+                endColumn: loc.range.end.character + 1
+              }
+            }));
+          }
+        } catch (err) {
+          console.error(`LSP Definition failed for ${lang}`, err);
+        }
+        return null;
+      }
+    });
+  });
+}

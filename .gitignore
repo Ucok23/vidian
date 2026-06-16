@@ -1,0 +1,11 @@
+# Binaries
+/vidian
+/code-inspector
+
+# Frontend dependencies and builds
+/frontend/node_modules/
+/frontend/dist/
+
+# OS specific files
+.DS_Store
+Thumbs.db
