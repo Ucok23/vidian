@@ -234,12 +234,6 @@
           <Icon name="folder" size={12} color="#ffffff" />
           <span>{store.workspace.name || 'loading...'}</span>
         </div>
-        {#if store.git.isGit}
-          <div class="status-item bg-indigo" title="Current branch">
-            <Icon name="branch" size={12} color="#ffffff" />
-            <span>{store.git.currentBranch}</span>
-          </div>
-        {/if}
         <div class="status-item clickable" onclick={() => store.init()}>
           <Icon name="refresh" size={12} />
           <span>Synchronized</span>
