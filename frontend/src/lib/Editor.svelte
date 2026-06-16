@@ -13,7 +13,7 @@
 
   // Diff Editor state
   let diffContainer = $state(null);
-  let diffEditor = $state.raw(null);
+  let diffEditor = null;
 
   // Blame state
   let currentBlame = $state([]);
@@ -297,7 +297,7 @@
     <!-- Empty State / Welcome Screen -->
     <div class="welcome-screen">
       <div class="logo-wrapper">
-        <div class="logo-icon"></div>
+        <img src="/favicon.svg" alt="Vidian Logo" class="logo-img" />
         <h1>Vidian</h1>
         <p class="subtitle">Lightweight. Beautiful. Read-only code viewer.</p>
       </div>
@@ -443,26 +443,23 @@
     letter-spacing: -0.02em;
   }
 
-  .logo-icon {
-    width: 64px;
-    height: 64px;
-    margin: 0 auto 1rem;
-    background: linear-gradient(135deg, #6366f1 0%, #4f46e5 100%);
-    border-radius: 16px;
-    position: relative;
-    box-shadow: 0 10px 25px -5px rgba(99, 102, 241, 0.4);
+  .logo-img {
+    width: 80px;
+    height: 80px;
+    margin: 0 auto 1.5rem;
+    filter: drop-shadow(0 10px 20px rgba(99, 102, 241, 0.25));
+    animation: pulse-glow 3.5s infinite ease-in-out;
   }
 
-  .logo-icon::after {
-    content: '</>';
-    position: absolute;
-    top: 50%;
-    left: 50%;
-    transform: translate(-50%, -50%);
-    color: #ffffff;
-    font-family: monospace;
-    font-weight: bold;
-    font-size: 22px;
+  @keyframes pulse-glow {
+    0%, 100% {
+      filter: drop-shadow(0 10px 20px rgba(99, 102, 241, 0.25));
+      transform: scale(1);
+    }
+    50% {
+      filter: drop-shadow(0 10px 30px rgba(245, 158, 11, 0.45));
+      transform: scale(1.025);
+    }
   }
 
   .subtitle {
