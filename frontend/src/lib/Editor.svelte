@@ -11,6 +11,14 @@
   let models = {};
   let showPreview = $state(false);
 
+  // Diff Editor state
+  let diffContainer = $state(null);
+  let diffEditor = $state.raw(null);
+
+  // Blame state
+  let currentBlame = $state([]);
+  let blameDecorations = [];
+
   const isMarkdown = $derived(store.activeFile?.name && store.activeFile.name.toLowerCase().endsWith('.md'));
 
   $effect(() => {
@@ -57,7 +65,6 @@
           const languageId = lang ? lang.id : undefined;
 
           model = monaco.editor.createModel(file.content, languageId, uri);
-          // Configure model options if needed
           model.updateOptions({ tabSize: 2, insertSpaces: true });
         }
         
@@ -74,6 +81,95 @@
       });
     }
   });
+
+  // Watch for activeDiff to build/rebuild the Monaco Diff Editor
+  $effect(() => {
+    const activeDiff = store.activeDiff;
+    if (activeDiff && diffContainer) {
+      if (diffEditor) {
+        diffEditor.dispose();
+      }
+
+      diffEditor = monaco.editor.createDiffEditor(diffContainer, {
+        theme: 'vs-dark',
+        readOnly: true,
+        automaticLayout: true,
+        fontSize: 14,
+        fontFamily: "'Fira Code', Menlo, Monaco, 'Courier New', monospace",
+        originalEditable: false,
+        lineHeight: 22,
+        renderSideBySide: true
+      });
+
+      const ext = '.' + activeDiff.path.split('.').pop().toLowerCase();
+      const lang = monaco.languages.getLanguages().find(l => l.extensions && l.extensions.includes(ext));
+      const languageId = lang ? lang.id : undefined;
+
+      const originalModel = monaco.editor.createModel(activeDiff.originalContent, languageId);
+      const modifiedModel = monaco.editor.createModel(activeDiff.modifiedContent, languageId);
+
+      diffEditor.setModel({
+        original: originalModel,
+        modified: modifiedModel
+      });
+    } else {
+      if (diffEditor) {
+        diffEditor.dispose();
+        diffEditor = null;
+      }
+    }
+  });
+
+  // Watch active file changes to load blame data
+  $effect(() => {
+    const file = store.activeFile;
+    currentBlame = [];
+    if (editor && blameDecorations.length > 0) {
+      editor.deltaDecorations(blameDecorations, []);
+      blameDecorations = [];
+    }
+
+    if (file && !file.isBinary && !file.isImage && store.git.isGit) {
+      fetch(`/api/git/blame?path=${encodeURIComponent(file.path)}`)
+        .then(res => res.json())
+        .then(data => {
+          currentBlame = data;
+          updateBlameDecoration();
+        })
+        .catch(err => console.error("Failed to load blame info", err));
+    }
+  });
+
+  function updateBlameDecoration() {
+    if (!editor || !store.activeFile || currentBlame.length === 0) return;
+
+    const position = editor.getPosition();
+    if (!position) return;
+
+    const line = position.lineNumber;
+    const record = currentBlame.find(r => r.line === line);
+    if (!record) {
+      blameDecorations = editor.deltaDecorations(blameDecorations, []);
+      return;
+    }
+
+    const model = editor.getModel();
+    if (!model) return;
+    const lineContent = model.getLineContent(line);
+    const endColumn = lineContent.length + 1;
+
+    blameDecorations = editor.deltaDecorations(blameDecorations, [
+      {
+        range: new monaco.Range(line, endColumn, line, endColumn),
+        options: {
+          after: {
+            content: `    ${record.author}, ${record.date} • ${record.summary}`,
+            inlineClassName: 'monaco-git-blame-inline'
+          }
+        }
+      }
+    ]);
+  }
 
   onMount(async () => {
     // Create Monaco instance
@@ -137,6 +233,7 @@
         line: e.position.lineNumber,
         column: e.position.column
       };
+      updateBlameDecoration();
     });
 
     // Register LSP providers
@@ -147,6 +244,9 @@
   onDestroy(() => {
     if (editor) {
       editor.dispose();
+    }
+    if (diffEditor) {
+      diffEditor.dispose();
     }
     // Dispose all models
     Object.values(models).forEach(model => model.dispose());
@@ -164,7 +264,12 @@
 </script>
 
 <div class="editor-host">
-  {#if !store.activePath}
+  {#if store.activeDiff}
+    <!-- Diff Editor Container -->
+    <div class="diff-editor-container-outer">
+      <div bind:this={diffContainer} class="diff-editor-container-inner"></div>
+    </div>
+  {:else if !store.activePath}
     <!-- Empty State / Welcome Screen -->
     <div class="welcome-screen">
       <div class="logo-wrapper">
@@ -267,6 +372,26 @@
   .monaco-container {
     width: 100%;
     height: 100%;
+  }
+
+  .diff-editor-container-outer {
+    width: 100%;
+    height: 100%;
+    background-color: #1e1e24;
+  }
+
+  .diff-editor-container-inner {
+    width: 100%;
+    height: 100%;
+  }
+
+  :global(.monaco-git-blame-inline) {
+    color: #8e8e93;
+    opacity: 0.55;
+    font-style: italic;
+    font-size: 11px;
+    pointer-events: none;
+    user-select: none;
   }
 
   /* Welcome Screen styles */

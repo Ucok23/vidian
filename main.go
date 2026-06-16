@@ -16,6 +16,7 @@ import (
 	"path/filepath"
 	"strings"
 	"sync"
+	"time"
 	"unicode/utf8"
 
 	"golang.org/x/net/websocket"
@@ -83,6 +84,11 @@ func main() {
 	http.HandleFunc("/api/files", handleFiles)
 	http.HandleFunc("/api/git/branches", handleGitBranches)
 	http.HandleFunc("/api/git/checkout", handleGitCheckout)
+	http.HandleFunc("/api/git/changes", handleGitChanges)
+	http.HandleFunc("/api/git/show", handleGitShow)
+	http.HandleFunc("/api/git/blame", handleGitBlame)
+	http.HandleFunc("/api/git/log", handleGitLog)
+	http.HandleFunc("/api/git/commit/files", handleGitCommitFiles)
 	http.Handle("/api/lsp", websocket.Handler(handleLSP))
 
 	// Frontend Handlers
@@ -563,6 +569,257 @@ func handleGitCheckout(w http.ResponseWriter, r *http.Request) {
 
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(map[string]bool{"success": true})
+}
+
+type GitChange struct {
+	Path   string `json:"path"`
+	Status string `json:"status"`
+}
+
+func handleGitChanges(w http.ResponseWriter, r *http.Request) {
+	setupCORS(w, r)
+	if r.Method == "OPTIONS" {
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+
+	statusOut, err := runGitCommand("status", "--porcelain")
+	if err != nil {
+		json.NewEncoder(w).Encode([]GitChange{})
+		return
+	}
+
+	var changes []GitChange
+	lines := strings.Split(statusOut, "\n")
+	for _, line := range lines {
+		if len(line) < 3 {
+			continue
+		}
+		status := strings.TrimSpace(line[:2])
+		path := strings.TrimSpace(line[2:])
+		if strings.Contains(path, " -> ") {
+			parts := strings.Split(path, " -> ")
+			path = parts[len(parts)-1]
+		}
+		changes = append(changes, GitChange{
+			Path:   path,
+			Status: status,
+		})
+	}
+
+	json.NewEncoder(w).Encode(changes)
+}
+
+func handleGitShow(w http.ResponseWriter, r *http.Request) {
+	setupCORS(w, r)
+	if r.Method == "OPTIONS" {
+		return
+	}
+
+	path := r.URL.Query().Get("path")
+	commit := r.URL.Query().Get("commit")
+	if path == "" {
+		http.Error(w, "Missing path parameter", http.StatusBadRequest)
+		return
+	}
+	if commit == "" {
+		commit = "HEAD"
+	}
+
+	out, err := runGitCommand("show", commit+":"+path)
+	if err != nil {
+		http.Error(w, "File not found in git: "+err.Error(), http.StatusNotFound)
+		return
+	}
+
+	w.Header().Set("Content-Type", "text/plain; charset=utf-8")
+	w.Write([]byte(out))
+}
+
+type BlameLine struct {
+	Line    int    `json:"line"`
+	Commit  string `json:"commit"`
+	Author  string `json:"author"`
+	Date    string `json:"date"`
+	Summary string `json:"summary"`
+}
+
+func handleGitBlame(w http.ResponseWriter, r *http.Request) {
+	setupCORS(w, r)
+	if r.Method == "OPTIONS" {
+		return
+	}
+
+	path := r.URL.Query().Get("path")
+	if path == "" {
+		http.Error(w, "Missing path parameter", http.StatusBadRequest)
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+
+	blameOut, err := runGitCommand("blame", "--porcelain", "--", path)
+	if err != nil {
+		json.NewEncoder(w).Encode([]BlameLine{})
+		return
+	}
+
+	var blameLines []BlameLine
+	lines := strings.Split(blameOut, "\n")
+	
+	commits := make(map[string]map[string]string)
+	var currentCommit string
+	var finalLineNum int
+
+	for i := 0; i < len(lines); i++ {
+		line := lines[i]
+		if line == "" {
+			continue
+		}
+
+		if strings.HasPrefix(line, "\t") {
+			attr := commits[currentCommit]
+			blameLines = append(blameLines, BlameLine{
+				Line:    finalLineNum,
+				Commit:  currentCommit[:8],
+				Author:  attr["author"],
+				Date:    attr["date"],
+				Summary: attr["summary"],
+			})
+			continue
+		}
+
+		parts := strings.SplitN(line, " ", 2)
+		if len(parts) < 2 {
+			continue
+		}
+		key := parts[0]
+		val := parts[1]
+
+		if len(key) == 40 {
+			currentCommit = key
+			headerParts := strings.Split(val, " ")
+			if len(headerParts) >= 2 {
+				fmt.Sscanf(headerParts[1], "%d", &finalLineNum)
+			}
+			if _, exists := commits[currentCommit]; !exists {
+				commits[currentCommit] = make(map[string]string)
+			}
+			continue
+		}
+
+		if currentCommit != "" {
+			if key == "author" {
+				commits[currentCommit]["author"] = val
+			} else if key == "author-time" {
+				var sec int64
+				fmt.Sscanf(val, "%d", &sec)
+				t := time.Unix(sec, 0)
+				commits[currentCommit]["date"] = t.Format("2006-01-02")
+			} else if key == "summary" {
+				commits[currentCommit]["summary"] = val
+			}
+		}
+	}
+
+	json.NewEncoder(w).Encode(blameLines)
+}
+
+type CommitInfo struct {
+	Hash     string `json:"hash"`
+	Author   string `json:"author"`
+	Email    string `json:"email"`
+	Date     string `json:"date"`
+	Relative string `json:"relative"`
+	Summary  string `json:"summary"`
+}
+
+func handleGitLog(w http.ResponseWriter, r *http.Request) {
+	setupCORS(w, r)
+	if r.Method == "OPTIONS" {
+		return
+	}
+
+	path := r.URL.Query().Get("path")
+	w.Header().Set("Content-Type", "application/json")
+
+	formatStr := "%H|%an|%ae|%ad|%ar|%s"
+	var logOut string
+	var err error
+	if path != "" {
+		logOut, err = runGitCommand("log", "-n", "50", "--follow", "--format="+formatStr, "--", path)
+	} else {
+		logOut, err = runGitCommand("log", "-n", "50", "--format="+formatStr)
+	}
+
+	if err != nil {
+		json.NewEncoder(w).Encode([]CommitInfo{})
+		return
+	}
+
+	var commits []CommitInfo
+	lines := strings.Split(logOut, "\n")
+	for _, line := range lines {
+		line = strings.TrimSpace(line)
+		if line == "" {
+			continue
+		}
+		parts := strings.SplitN(line, "|", 6)
+		if len(parts) < 6 {
+			continue
+		}
+		commits = append(commits, CommitInfo{
+			Hash:     parts[0],
+			Author:   parts[1],
+			Email:    parts[2],
+			Date:     parts[3],
+			Relative: parts[4],
+			Summary:  parts[5],
+		})
+	}
+
+	json.NewEncoder(w).Encode(commits)
+}
+
+func handleGitCommitFiles(w http.ResponseWriter, r *http.Request) {
+	setupCORS(w, r)
+	if r.Method == "OPTIONS" {
+		return
+	}
+
+	commit := r.URL.Query().Get("commit")
+	if commit == "" {
+		http.Error(w, "Missing commit parameter", http.StatusBadRequest)
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+
+	out, err := runGitCommand("diff-tree", "--no-commit-id", "--name-status", "-r", commit)
+	if err != nil {
+		json.NewEncoder(w).Encode([]GitChange{})
+		return
+	}
+
+	var changes []GitChange
+	lines := strings.Split(out, "\n")
+	for _, line := range lines {
+		line = strings.TrimSpace(line)
+		if line == "" {
+			continue
+		}
+		parts := strings.SplitN(line, "\t", 2)
+		if len(parts) < 2 {
+			continue
+		}
+		changes = append(changes, GitChange{
+			Path:   parts[1],
+			Status: parts[0],
+		})
+	}
+
+	json.NewEncoder(w).Encode(changes)
 }
 
 func handleLSP(ws *websocket.Conn) {

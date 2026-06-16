@@ -22,6 +22,7 @@ class AppStore {
   git = $state({ isGit: false, currentBranch: '', branches: [] });
   branchSelectorVisible = $state(false);
   isCheckingOut = $state(false);
+  activeDiff = $state(null); // { path, originalContent, modifiedContent, title }
 
   // Active file derived state
   get activeFile() {
@@ -73,6 +74,7 @@ class AppStore {
   }
 
   async openFile(path, jumpToLine = null) {
+    this.activeDiff = null;
     // Check if already open
     const exists = this.openFiles.some(f => f.path === path);
     if (!exists) {
@@ -245,6 +247,41 @@ class AppStore {
       } else {
         this.activePath = null;
       }
+    }
+  }
+
+  async openDiff(path, originalCommit, modifiedCommit, title) {
+    try {
+      let originalContent = '';
+      if (originalCommit) {
+        const res = await fetch(`${API_BASE}/api/git/show?path=${encodeURIComponent(path)}&commit=${originalCommit}`);
+        if (res.ok) {
+          originalContent = await res.text();
+        }
+      }
+
+      let modifiedContent = '';
+      if (modifiedCommit) {
+        const res = await fetch(`${API_BASE}/api/git/show?path=${encodeURIComponent(path)}&commit=${modifiedCommit}`);
+        if (res.ok) {
+          modifiedContent = await res.text();
+        }
+      } else {
+        const res = await fetch(`${API_BASE}/api/file?path=${encodeURIComponent(path)}`);
+        if (res.ok) {
+          modifiedContent = await res.text();
+        }
+      }
+
+      this.activeDiff = {
+        path,
+        originalContent,
+        modifiedContent,
+        title
+      };
+      this.activePath = null;
+    } catch (err) {
+      console.error("Failed to load diff contents", path, err);
     }
   }
 }

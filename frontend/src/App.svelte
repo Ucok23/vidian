@@ -7,6 +7,7 @@
   import Editor from './lib/Editor.svelte';
   import QuickOpen from './lib/QuickOpen.svelte';
   import BranchSelector from './lib/BranchSelector.svelte';
+  import GitPanel from './lib/GitPanel.svelte';
 
   let sidebarVisible = $state(true);
   let sidebarWidth = $state(260);
@@ -116,6 +117,19 @@
       >
         <Icon name="search" size={24} />
       </div>
+
+      {#if store.git.isGit}
+        <!-- svelte-ignore a11y_click_events_have_key_events -->
+        <!-- svelte-ignore a11y_no_static_element_interactions -->
+        <div
+          class="activity-btn"
+          class:active={sidebarVisible && store.sidebarTab === 'git'}
+          onclick={() => toggleSidebarTab('git')}
+          title="Source Control"
+        >
+          <Icon name="branch" size={24} />
+        </div>
+      {/if}
     </div>
 
     <div class="bottom-items">
@@ -135,6 +149,8 @@
         <Explorer />
       {:else if store.sidebarTab === 'search'}
         <Search />
+      {:else if store.sidebarTab === 'git'}
+        <GitPanel />
       {/if}
     </div>
 
@@ -174,6 +190,26 @@
           </span>
         </div>
       {/each}
+      {#if store.activeDiff}
+        <!-- svelte-ignore a11y_click_events_have_key_events -->
+        <!-- svelte-ignore a11y_no_static_element_interactions -->
+        <div class="tab active" onclick={() => {}} title={store.activeDiff.path}>
+          <Icon name="split" size={14} color="#6366f1" />
+          <span class="tab-name">{store.activeDiff.title}</span>
+          <span
+            class="close-icon"
+            onclick={(e) => {
+              e.stopPropagation();
+              store.activeDiff = null;
+              if (store.openFiles.length > 0) {
+                store.openFile(store.openFiles[0].path);
+              }
+            }}
+          >
+            <Icon name="close" size={12} />
+          </span>
+        </div>
+      {/if}
     </div>
 
     <!-- Editor Area -->
