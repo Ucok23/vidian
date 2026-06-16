@@ -51,7 +51,7 @@ npm run build
 cd ..
 
 # 2. Compile Go binary with embedded assets
-go build -o vidian main.go
+go build -o vidian cmd/vidian/main.go
 ```
 
 ### 2. Run
@@ -71,8 +71,26 @@ cd frontend
 npm run dev
 
 # In terminal 2 (start backend in dev mode):
-go run main.go -dir . -dev -port 8080
+go run cmd/vidian/main.go -dir . -dev -port 8080
 ```
+
+---
+
+## Running Workflow Tests
+
+To ensure changes do not break existing functionality (such as Monaco Editor mounting, explorer navigation, git integration, or Monaco Diff Editor rendering), Vidian includes an automated End-to-End integration test suite using Puppeteer.
+
+You can run the entire workflow build-and-test cycle using a single script at the root:
+
+```bash
+./run-tests.sh
+```
+
+This script automatically:
+1. Re-builds the Svelte frontend assets.
+2. Compiles the Go backend server.
+3. Launches the server in development mode.
+4. Executes the headless browser tests in Chromium, verifying core editor actions and ensuring zero uncaught browser console exceptions or layout failures.
 
 ---
 
