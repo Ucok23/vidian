@@ -20,7 +20,6 @@ class AppStore {
 
   // Git state
   git = $state({ isGit: false, currentBranch: '', branches: [] });
-  branchSelectorVisible = $state(false);
   isCheckingOut = $state(false);
   activeDiff = $state(null); // { path, originalContent, modifiedContent, title }
 
@@ -199,7 +198,6 @@ class AppStore {
       alert(`Failed to checkout branch: ${err.message}`);
     } finally {
       this.isCheckingOut = false;
-      this.branchSelectorVisible = false;
     }
   }
 

@@ -6,7 +6,6 @@
   import Search from './lib/Search.svelte';
   import Editor from './lib/Editor.svelte';
   import QuickOpen from './lib/QuickOpen.svelte';
-  import BranchSelector from './lib/BranchSelector.svelte';
   import GitPanel from './lib/GitPanel.svelte';
 
   let sidebarVisible = $state(true);
@@ -236,9 +235,7 @@
           <span>{store.workspace.name || 'loading...'}</span>
         </div>
         {#if store.git.isGit}
-          <!-- svelte-ignore a11y_click_events_have_key_events -->
-          <!-- svelte-ignore a11y_no_static_element_interactions -->
-          <div class="status-item clickable bg-indigo" onclick={() => store.branchSelectorVisible = true} title="Switch branch">
+          <div class="status-item bg-indigo" title="Current branch">
             <Icon name="branch" size={12} color="#ffffff" />
             <span>{store.git.currentBranch}</span>
           </div>
@@ -272,7 +269,6 @@
 
   <!-- Quick Open Palette -->
   <QuickOpen />
-  <BranchSelector />
 </div>
 
 <style>
