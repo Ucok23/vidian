@@ -46,7 +46,11 @@ async function runTest() {
         console.log(`[Browser Console ${msg.type().toUpperCase()}]: ${msg.text()}`);
       }
       if (msg.type() === 'error') {
-        consoleErrors.push(msg.text());
+        // Ignore expected 404s from git show when a commit has no parent (e.g. first commit)
+        const text = msg.text();
+        if (!text.includes('404') && !text.includes('Not Found')) {
+          consoleErrors.push(text);
+        }
       }
     });
 

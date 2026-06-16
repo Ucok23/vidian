@@ -10,7 +10,7 @@
   let editorContainer = $state(null);
   let editor = $state.raw(null);
   let models = {};
-  let showPreview = $state(false);
+  let showPreview = $state(true);
 
   // Diff Editor state
   let diffContainer = $state(null);
@@ -25,9 +25,8 @@
   $effect(() => {
     if (store.activePath) {
       const isMd = store.activeFile?.name && store.activeFile.name.toLowerCase().endsWith('.md');
-      if (!isMd) {
-        showPreview = false;
-      }
+      // Auto-enable preview for markdown, disable for non-markdown
+      showPreview = !!isMd;
     } else {
       showPreview = false;
     }
@@ -357,33 +356,34 @@
     </div>
   {/if}
 
-  <!-- The split workspace container -->
+  <!-- Full preview pane (markdown default) -->
+  {#if isMarkdown && showPreview && !store.activeDiff && store.activePath && !store.activeFile?.isBinary && !store.activeFile?.isImage && !store.activeFile?.isCommit}
+    <div class="preview-pane-full">
+      <MarkdownPreview content={store.activeFile.content} />
+    </div>
+  {/if}
+
+  <!-- The split workspace container (Monaco + optional preview side-by-side) -->
   <div 
     class="editor-split-container"
-    style="display: {store.activePath && !store.activeFile?.isBinary && !store.activeFile?.isImage && !store.activeFile?.isCommit ? 'flex' : 'none'}"
+    style="display: {store.activePath && !store.activeFile?.isBinary && !store.activeFile?.isImage && !store.activeFile?.isCommit && (!isMarkdown || !showPreview) ? 'flex' : 'none'}"
   >
     <div 
       bind:this={editorContainer} 
       class="monaco-container"
     ></div>
-
-    {#if showPreview && isMarkdown}
-      <div class="preview-pane">
-        <MarkdownPreview content={store.activeFile.content} />
-      </div>
-    {/if}
   </div>
 
   {#if store.activePath && !store.activeFile?.isBinary && !store.activeFile?.isImage && !store.activeFile?.isCommit && isMarkdown}
-    <!-- Floating action button for markdown preview -->
+    <!-- Floating action button: toggle split raw view -->
     <button 
       class="preview-toggle-btn"
-      class:active={showPreview}
+      class:active={!showPreview}
       onclick={() => showPreview = !showPreview}
-      title={showPreview ? "Close Preview" : "Open Preview to the Side"}
+      title={showPreview ? "View Raw Markdown" : "Back to Preview"}
     >
-      <Icon name={showPreview ? "close" : "split"} size={14} color="#ffffff" />
-      <span>{showPreview ? "Close Preview" : "Split Preview"}</span>
+      <Icon name={showPreview ? "split" : "close"} size={14} color="#ffffff" />
+      <span>{showPreview ? "View Raw" : "Close Raw"}</span>
     </button>
   {/if}
 </div>
@@ -662,6 +662,13 @@
     height: 100%;
     border-left: 1px solid #2d2d34;
     min-width: 0;
+    overflow: hidden;
+    background-color: #1e1e24;
+  }
+
+  .preview-pane-full {
+    position: absolute;
+    inset: 0;
     overflow: hidden;
     background-color: #1e1e24;
   }
