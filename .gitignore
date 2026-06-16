@@ -1,6 +1,5 @@
 # Binaries
 /vidian
-/code-inspector
 
 # Frontend dependencies and builds
 /frontend/node_modules/
