@@ -85,6 +85,9 @@
   // Watch for activeDiff to build/rebuild the Monaco Diff Editor
   $effect(() => {
     const activeDiff = store.activeDiff;
+    let originalModel = null;
+    let modifiedModel = null;
+
     if (activeDiff && diffContainer) {
       if (diffEditor) {
         diffEditor.dispose();
@@ -105,19 +108,40 @@
       const lang = monaco.languages.getLanguages().find(l => l.extensions && l.extensions.includes(ext));
       const languageId = lang ? lang.id : undefined;
 
-      const originalModel = monaco.editor.createModel(activeDiff.originalContent, languageId);
-      const modifiedModel = monaco.editor.createModel(activeDiff.modifiedContent, languageId);
+      originalModel = monaco.editor.createModel(activeDiff.originalContent, languageId);
+      modifiedModel = monaco.editor.createModel(activeDiff.modifiedContent, languageId);
 
       diffEditor.setModel({
         original: originalModel,
         modified: modifiedModel
       });
-    } else {
+    }
+
+    return () => {
       if (diffEditor) {
         diffEditor.dispose();
         diffEditor = null;
       }
-    }
+      if (originalModel) {
+        originalModel.dispose();
+      }
+      if (modifiedModel) {
+        modifiedModel.dispose();
+      }
+    };
+  });
+
+  // Dispose models when tabs are closed to prevent memory leaks
+  $effect(() => {
+    const openPaths = new Set(store.openFiles.map(f => f.path));
+    Object.keys(models).forEach(path => {
+      if (!openPaths.has(path)) {
+        if (models[path]) {
+          models[path].dispose();
+          delete models[path];
+        }
+      }
+    });
   });
 
   // Watch active file changes to load blame data
