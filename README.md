@@ -1,106 +1,178 @@
 # Vidian 🔍
 
-A lightweight, beautiful, high-performance, **read-only VS Code clone** designed for viewing and searching code. Built from the ground up with a **Go** backend and a reactive **Svelte 5** frontend embedding the **Monaco Editor** engine.
+A lightweight, beautiful **read-only code viewer** that runs as a single Go binary and opens in your browser instantly. Built for quickly inspecting code, reading READMEs, and reviewing commit history — without the weight of a full IDE.
 
-It compiles into a **single binary** with zero external dependencies.
-
----
-
-## Key Features
-
-- ⚡ **Ultra-Fast & Lightweight**: Go-powered backend serves static compiled assets and walks directory trees in milliseconds with minimal memory footprint (< 15MB RAM).
-- 🎨 **Premium Modern Design**: A clean dark theme featuring hover animations, subtle borders, custom scrollbars, and color-coded file extension icons.
-- 📝 **Authentic VS Code Feel**: Powered by the same editing engine as VS Code (Monaco Editor). Supports:
-  - 100+ languages syntax highlighting
-  - Multi-tab file viewer (caches file state, scroll, and cursor positions)
-  - Code folding & brackets matching
-  - Interactive minimap
-  - Image previews and details card for binary files
-- 🤖 **Multi-Language LSP Support**: Local background Language Server integration for **Go (`gopls`)**, **Python (`pylsp`)**, **TypeScript/JavaScript (`typescript-language-server`)**, and **Rust (`rust-analyzer`)**. Provides:
-  - Hover signatures & docstrings definitions
-  - Ctrl+Click jump to definition across files
-  - Live red-wavy syntax/type checking markers
-- 🔍 **Global Workspace Search**: Dynamic full-text content and file-path search. Highlights search queries, groups matches by file, and lets you click a match to open the editor directly at that line number.
-- ⚡ **Quick Open (Ctrl + P / Cmd + P)**: Floating, keyboard-navigable command palette that allows you to instantly search and jump to any file in the workspace.
-- 📊 **Real-time Status Bar**: Tracks cursor positions (`Ln X, Col Y`), automatically identifies file language formats, and displays sync state.
-- 🔒 **Path Traversal Protection**: Backend cleans and validates requested paths against the workspace root to prevent directory traversal exploits.
-
----
-
-## Architecture Overview
-
-```mermaid
-graph TD
-    Client[Browser UI: Svelte 5 + Monaco] -->|HTTP / API| API[Go HTTP Server]
-    API -->|Embed FS| StaticAssets[Embedded HTML/JS/CSS]
-    API -->|Safe Path Read| FS[Local Filesystem]
+```bash
+vidian .           # open current folder
+vidian ~/projects  # open any folder
 ```
 
 ---
 
-## How to Build & Run
+## Why Vidian?
 
-### 1. Build from Source
-If you make changes, you can compile the entire application into a single binary:
+When an AI generates code, or you need to quickly check a README, review a diff, or browse a commit — opening VS Code or a full IDE is often overkill. Vidian fills that gap:
 
-```bash
-# 1. Build the frontend assets
-cd frontend
-npm install
-npm run build
-cd ..
-
-# 2. Compile Go binary with embedded assets
-go build -o vidian cmd/vidian/main.go
-```
-
-### 2. Run
-Run the executable and point it to any directory you want to inspect:
-
-```bash
-./vidian -dir /path/to/your/workspace -port 8080
-```
-Then, open **[http://localhost:8080](http://localhost:8080)** in your browser!
-
-### 3. Development Mode
-During frontend development, you can run the backend in `-dev` mode which serves files directly from the filesystem (so you don't need to re-compile the Go binary when you edit Svelte files):
-
-```bash
-# In terminal 1 (start frontend dev server):
-cd frontend
-npm run dev
-
-# In terminal 2 (start backend in dev mode):
-go run cmd/vidian/main.go -dir . -dev -port 8080
-```
+- **Instant**: Opens a browser tab in under a second
+- **Lightweight**: Single binary, `< 15 MB RAM` usage
+- **Zero config**: No extensions, no language servers, no workspace setup
+- **Read-only**: Safe to point at any directory — no accidental edits
 
 ---
 
-## Running Workflow Tests
+## Features
 
-To ensure changes do not break existing functionality (such as Monaco Editor mounting, explorer navigation, git integration, or Monaco Diff Editor rendering), Vidian includes an automated End-to-End integration test suite using Puppeteer.
+- 📁 **File Explorer** — Tree view with expand/collapse, color-coded file icons
+- 📝 **Monaco Editor** — The same editor engine as VS Code, syntax highlighting for 100+ languages
+- 🔍 **Global Search** — Full-text content search across all files
+- ⚡ **Quick Open** — `Ctrl+P` to jump to any file instantly
+- 🖼️ **Image Preview** — View images inline, binary file metadata cards
+- 📄 **Markdown Preview** — Side-by-side rendered markdown
+- 🌿 **Git Integration**:
+  - Browse commit history with full details in the main editor area
+  - Side-by-side diff viewer for any changed file in a commit
+  - View uncommitted changes (working tree vs HEAD)
+  - Switch branches from the Git sidebar
 
-You can run the entire workflow build-and-test cycle using a single script at the root:
+---
+
+## Installation
+
+Three ways to install — pick what fits your workflow.
+
+---
+
+### Method 1: One-liner script *(Recommended for most users)*
+
+Downloads a pre-built binary for your OS and architecture:
 
 ```bash
-./run-tests.sh
+curl -sSL https://raw.githubusercontent.com/ucok-man/vidian/main/install.sh | bash
 ```
 
-This script automatically:
-1. Re-builds the Svelte frontend assets.
-2. Compiles the Go backend server.
-3. Launches the server in development mode.
-4. Executes the headless browser tests in Chromium, verifying core editor actions and ensuring zero uncaught browser console exceptions or layout failures.
+**Supports:** Linux (amd64, arm64), macOS (amd64, arm64)
+
+To pin a specific version:
+```bash
+VIDIAN_VERSION=v1.0.0 curl -sSL https://raw.githubusercontent.com/ucok-man/vidian/main/install.sh | bash
+```
+
+**When to use:** You just want it installed and running with no Go or build tools required.
+
+---
+
+### Method 2: `go install` *(For Go developers)*
+
+Builds and installs directly into `$GOPATH/bin`:
+
+```bash
+go install github.com/ucok-man/vidian/cmd/vidian@latest
+```
+
+> `$GOPATH/bin` is usually already in your `$PATH`. If not, add this to your shell profile:
+> ```bash
+> export PATH="$PATH:$(go env GOPATH)/bin"
+> ```
+
+**When to use:** You already have Go installed and want the cleanest, most idiomatic Go tool install experience.
+
+---
+
+### Method 3: Build from source *(For contributors)*
+
+Clone and use the Makefile:
+
+```bash
+git clone https://github.com/ucok-man/vidian.git
+cd vidian
+make install
+```
+
+This builds the frontend + Go binary and copies it to `/usr/local/bin/vidian`.
+
+Other useful Makefile targets:
+
+```bash
+make help        # Show all available targets
+make build       # Build binary only (frontend must already be built)
+make all         # Build frontend + binary (no install)
+make uninstall   # Remove from /usr/local/bin
+make clean       # Remove build artifacts
+```
+
+**When to use:** You want to contribute to Vidian or need a custom build.
+
+---
+
+## Usage
+
+```bash
+vidian .                      # open current directory
+vidian /path/to/project       # open a specific folder
+vidian . -port 9000           # custom port (default: 8080)
+```
+
+Then open **[http://localhost:8080](http://localhost:8080)** in your browser.
+
+### Flags
+
+| Flag | Default | Description |
+|:---|:---|:---|
+| `-dir` | `.` | Path to workspace directory |
+| `-port` | `8080` | HTTP port to listen on |
+| `-dev` | `false` | Serve frontend from disk (for development) |
 
 ---
 
 ## Keyboard Shortcuts
 
 | Shortcut | Action |
-| :--- | :--- |
-| <kbd>Ctrl</kbd> + <kbd>P</kbd> | Open Quick Open Palette (Search/jump to file) |
-| <kbd>Ctrl</kbd> + <kbd>B</kbd> | Toggle Sidebar panel visibility |
-| <kbd>Ctrl</kbd> + <kbd>Shift</kbd> + <kbd>F</kbd> | Toggle search panel / focus search input |
-| <kbd>Esc</kbd> | Close Quick Open Palette |
-| <kbd>↑</kbd> / <kbd>↓</kbd> | Navigate files in Quick Open |
-| <kbd>Enter</kbd> | Open file in Quick Open |
+|:---|:---|
+| `Ctrl + P` | Quick Open — search and jump to any file |
+| `Ctrl + B` | Toggle sidebar visibility |
+| `Ctrl + Shift + F` | Focus global search |
+| `Esc` | Close Quick Open palette |
+| `↑` / `↓` | Navigate items in Quick Open |
+| `Enter` | Open selected file |
+
+---
+
+## Architecture
+
+```mermaid
+graph TD
+    Client[Browser: Svelte 5 + Monaco Editor] -->|HTTP| Server[Go HTTP Server]
+    Server -->|embed.FS| Assets[Compiled Frontend Assets]
+    Server -->|Safe Path Read| FS[Local Filesystem]
+    Server -->|git CLI| Git[Git]
+```
+
+The entire app ships as a **single self-contained binary** — the Svelte + Monaco frontend is compiled and embedded at build time via Go's `embed` package. No Node.js, no npm, no external dependencies at runtime.
+
+---
+
+## Development
+
+Run the frontend dev server and Go backend separately for hot-reload:
+
+```bash
+# Terminal 1 — Svelte with HMR
+cd frontend && npm run dev
+
+# Terminal 2 — Go backend in dev mode
+go run ./cmd/vidian/main.go -dir . -dev -port 8080
+```
+
+### Tests
+
+```bash
+./run-tests.sh
+```
+
+Builds frontend, compiles backend, starts the server, and runs headless Chromium (Puppeteer) end-to-end tests across the file explorer, Monaco editor, Git panel, commit viewer, and diff editor.
+
+---
+
+## License
+
+MIT
