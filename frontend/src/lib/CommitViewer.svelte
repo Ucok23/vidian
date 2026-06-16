@@ -4,6 +4,16 @@
 
   let { commit } = $props();
 
+  let copied = $state(false);
+
+  function copyHash() {
+    navigator.clipboard.writeText(commit.hash);
+    copied = true;
+    setTimeout(() => {
+      copied = false;
+    }, 2000);
+  }
+
   function getStatusColor(status) {
     switch (status) {
       case 'A': return '#10b981'; // Green for added
@@ -21,10 +31,21 @@
       <h2>{commit.subject}</h2>
     </div>
     
-    <div class="commit-meta-grid">
+    <div class="commit-meta-list">
       <div class="meta-item">
-        <span class="meta-label">Commit Hash:</span>
-        <span class="meta-value hash">{commit.hash}</span>
+        <span class="meta-label">Commit:</span>
+        <span class="meta-value hash-wrapper">
+          <span class="hash">{commit.hash}</span>
+          <button class="copy-btn" onclick={copyHash} title="Copy full hash">
+            {#if copied}
+              <svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="#10b981" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"></polyline></svg>
+              <span style="color: #10b981;">Copied!</span>
+            {:else}
+              <svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path></svg>
+              <span>Copy</span>
+            {/if}
+          </button>
+        </span>
       </div>
       <div class="meta-item">
         <span class="meta-label">Author:</span>
@@ -118,33 +139,71 @@
     line-height: 1.3;
   }
 
-  .commit-meta-grid {
-    display: grid;
-    grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
-    gap: 1rem;
+  .commit-meta-list {
+    display: flex;
+    flex-direction: column;
+    gap: 0.75rem;
   }
 
   .meta-item {
     display: flex;
-    flex-direction: column;
-    gap: 4px;
+    align-items: flex-start;
+    gap: 1.5rem;
+    font-size: 13px;
+    line-height: 1.5;
   }
 
   .meta-label {
+    width: 90px;
     font-size: 11px;
     text-transform: uppercase;
     letter-spacing: 0.05em;
     color: #8e8e93;
+    flex-shrink: 0;
+    padding-top: 2px;
   }
 
   .meta-value {
-    font-size: 13px;
     color: #e3e3e6;
+    word-break: break-all;
   }
 
-  .meta-value.hash {
+  .hash-wrapper {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    flex-wrap: wrap;
+  }
+
+  .hash {
     font-family: 'Fira Code', monospace;
     color: #a5b4fc;
+    word-break: break-all;
+  }
+
+  .copy-btn {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    background: rgba(255, 255, 255, 0.04);
+    border: 1px solid rgba(255, 255, 255, 0.08);
+    border-radius: 4px;
+    color: #a1a1aa;
+    padding: 2px 6px;
+    font-size: 11px;
+    cursor: pointer;
+    transition: background-color 0.15s, color 0.15s, border-color 0.15s;
+    user-select: none;
+  }
+
+  .copy-btn:hover {
+    background: rgba(99, 102, 241, 0.12);
+    border-color: rgba(99, 102, 241, 0.25);
+    color: #ffffff;
+  }
+
+  .copy-btn svg {
+    flex-shrink: 0;
   }
 
   .commit-body-card {
