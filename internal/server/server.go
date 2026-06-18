@@ -13,9 +13,9 @@ import (
 	"unicode/utf8"
 
 	"golang.org/x/net/websocket"
-	"vidian/internal/config"
-	"vidian/internal/git"
-	"vidian/internal/lsp"
+	"github.com/Ucok23/vidian/internal/config"
+	"github.com/Ucok23/vidian/internal/git"
+	"github.com/Ucok23/vidian/internal/lsp"
 )
 
 type FileInfo struct {

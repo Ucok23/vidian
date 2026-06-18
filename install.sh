@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 set -e
 
-REPO="ucok-man/vidian"
+REPO="Ucok23/vidian"
 BINARY="vidian"
 INSTALL_DIR="/usr/local/bin"
 TMP_DIR=$(mktemp -d)

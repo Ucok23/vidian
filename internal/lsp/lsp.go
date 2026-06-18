@@ -12,7 +12,7 @@ import (
 	"sync"
 
 	"golang.org/x/net/websocket"
-	"vidian/internal/config"
+	"github.com/Ucok23/vidian/internal/config"
 )
 
 func HandleLSP(ws *websocket.Conn) {

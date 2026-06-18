@@ -1,4 +1,4 @@
-module vidian
+module github.com/Ucok23/vidian
 
 go 1.26.1
 

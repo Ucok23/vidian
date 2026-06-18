@@ -6,9 +6,9 @@ import (
 	"os"
 	"path/filepath"
 
-	"vidian"
-	"vidian/internal/config"
-	"vidian/internal/server"
+	"github.com/Ucok23/vidian"
+	"github.com/Ucok23/vidian/internal/config"
+	"github.com/Ucok23/vidian/internal/server"
 )
 
 func main() {

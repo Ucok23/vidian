@@ -47,14 +47,14 @@ Three ways to install — pick what fits your workflow.
 Downloads a pre-built binary for your OS and architecture:
 
 ```bash
-curl -sSL https://raw.githubusercontent.com/ucok-man/vidian/main/install.sh | bash
+curl -sSL https://raw.githubusercontent.com/Ucok23/vidian/main/install.sh | bash
 ```
 
 **Supports:** Linux (amd64, arm64), macOS (amd64, arm64)
 
 To pin a specific version:
 ```bash
-VIDIAN_VERSION=v1.0.0 curl -sSL https://raw.githubusercontent.com/ucok-man/vidian/main/install.sh | bash
+VIDIAN_VERSION=v1.0.0 curl -sSL https://raw.githubusercontent.com/Ucok23/vidian/main/install.sh | bash
 ```
 
 **When to use:** You just want it installed and running with no Go or build tools required.
@@ -66,7 +66,7 @@ VIDIAN_VERSION=v1.0.0 curl -sSL https://raw.githubusercontent.com/ucok-man/vidia
 Builds and installs directly into `$GOPATH/bin`:
 
 ```bash
-go install github.com/ucok-man/vidian/cmd/vidian@latest
+go install github.com/Ucok23/vidian/cmd/vidian@latest
 ```
 
 > `$GOPATH/bin` is usually already in your `$PATH`. If not, add this to your shell profile:
@@ -83,7 +83,7 @@ go install github.com/ucok-man/vidian/cmd/vidian@latest
 Clone and use the Makefile:
 
 ```bash
-git clone https://github.com/ucok-man/vidian.git
+git clone https://github.com/Ucok23/vidian.git
 cd vidian
 make install
 ```

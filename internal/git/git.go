@@ -6,7 +6,7 @@ import (
 	"strings"
 	"time"
 
-	"vidian/internal/config"
+	"github.com/Ucok23/vidian/internal/config"
 )
 
 type GitInfo struct {
