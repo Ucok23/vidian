@@ -7,10 +7,13 @@ import (
 	"io"
 	"io/fs"
 	"log"
+	"net"
 	"net/http"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"regexp"
+	"runtime"
 	"strconv"
 	"strings"
 	"unicode/utf8"
@@ -110,8 +113,31 @@ func Start(cfg *config.Config, embeddedFiles fs.FS) {
 		})
 	}
 
-	log.Printf("Server listening on http://localhost:%d", cfg.Port)
-	log.Fatal(http.ListenAndServe(fmt.Sprintf(":%d", cfg.Port), nil))
+	ln, err := net.Listen("tcp", fmt.Sprintf(":%d", cfg.Port))
+	if err != nil {
+		log.Fatalf("Failed to bind port %d: %v", cfg.Port, err)
+	}
+
+	url := fmt.Sprintf("http://localhost:%d", cfg.Port)
+	log.Printf("Server listening on %s", url)
+	go openBrowser(url)
+
+	log.Fatal(http.Serve(ln, nil))
+}
+
+func openBrowser(url string) {
+	var cmd *exec.Cmd
+	switch runtime.GOOS {
+	case "darwin":
+		cmd = exec.Command("open", url)
+	case "windows":
+		cmd = exec.Command("cmd", "/c", "start", url)
+	default:
+		cmd = exec.Command("xdg-open", url)
+	}
+	if err := cmd.Start(); err != nil {
+		log.Printf("Could not open browser: %v", err)
+	}
 }
 
 func handleWorkspace(w http.ResponseWriter, r *http.Request) {
@@ -207,7 +233,12 @@ func handleFile(w http.ResponseWriter, r *http.Request) {
 	if len(content) > 0 {
 		sample := content
 		if len(sample) > 512 {
+			// Trim back to the last UTF-8 boundary so we don't cut
+			// inside a multi-byte sequence and misclassify the file.
 			sample = sample[:512]
+			for len(sample) > 0 && sample[len(sample)-1]&0xC0 == 0x80 {
+				sample = sample[:len(sample)-1]
+			}
 		}
 		for _, b := range sample {
 			if b == 0 {

@@ -79,6 +79,8 @@
       renderedHtml = `<p style="color: #ef4444;">Failed to compile markdown: ${e.message}</p>`;
     }
 
+    if (previewContainer) previewContainer.scrollTop = 0;
+
     // Run Mermaid after DOM update
     tick().then(() => {
       if (previewContainer) {
