@@ -12,6 +12,42 @@
   let sidebarWidth = $state(260);
   let isResizing = $state(false);
 
+  // Tab context menu state
+  let tabContextMenu = $state({ visible: false, x: 0, y: 0, path: null });
+
+  function showTabContextMenu(e, path) {
+    e.preventDefault();
+    tabContextMenu = { visible: true, x: e.clientX, y: e.clientY, path };
+  }
+
+  function hideTabContextMenu() {
+    tabContextMenu = { visible: false, x: 0, y: 0, path: null };
+  }
+
+  function handleTabMenuAction(action) {
+    const path = tabContextMenu.path;
+    hideTabContextMenu();
+    if (!path) return;
+
+    switch (action) {
+      case 'close':
+        store.closeFile(path);
+        break;
+      case 'closeOthers':
+        store.closeOtherFiles(path);
+        break;
+      case 'closeRight':
+        store.closeFilesToTheRight(path);
+        break;
+      case 'closeAll':
+        store.closeAllFiles();
+        break;
+      case 'copyPath':
+        navigator.clipboard.writeText(path);
+        break;
+    }
+  }
+
   // Resize logic
   function startResize(e) {
     e.preventDefault();
@@ -85,8 +121,10 @@
   onMount(async () => {
     await store.init();
     window.addEventListener('keydown', handleKeyDown);
+    window.addEventListener('click', hideTabContextMenu);
     return () => {
       window.removeEventListener('keydown', handleKeyDown);
+      window.removeEventListener('click', hideTabContextMenu);
     };
   });
 </script>
@@ -179,6 +217,7 @@
               store.openFile(file.path);
             }
           }}
+          oncontextmenu={(e) => showTabContextMenu(e, file.path)}
           title={file.path}
         >
           {#if file.isCommit}
@@ -221,6 +260,25 @@
         </div>
       {/if}
     </div>
+
+    <!-- Tab Context Menu -->
+    {#if tabContextMenu.visible}
+      <!-- svelte-ignore a11y_no_static_element_interactions -->
+      <!-- svelte-ignore a11y_click_events_have_key_events -->
+      <div
+        class="tab-context-menu"
+        style="left: {tabContextMenu.x}px; top: {tabContextMenu.y}px"
+        onclick={(e) => e.stopPropagation()}
+      >
+        <div class="context-menu-item" onclick={() => handleTabMenuAction('close')}>Close</div>
+        <div class="context-menu-item" onclick={() => handleTabMenuAction('closeOthers')}>Close Others</div>
+        <div class="context-menu-item" onclick={() => handleTabMenuAction('closeRight')}>Close to the Right</div>
+        <div class="context-menu-separator"></div>
+        <div class="context-menu-item" onclick={() => handleTabMenuAction('closeAll')}>Close All</div>
+        <div class="context-menu-separator"></div>
+        <div class="context-menu-item" onclick={() => handleTabMenuAction('copyPath')}>Copy Path</div>
+      </div>
+    {/if}
 
     <!-- Editor Area -->
     <div class="editor-container">
@@ -492,5 +550,36 @@
 
   .text-dimmed {
     color: #5d5d66;
+  }
+
+  /* Tab Context Menu */
+  .tab-context-menu {
+    position: fixed;
+    z-index: 1000;
+    background-color: #252529;
+    border: 1px solid #3d3d44;
+    border-radius: 6px;
+    padding: 4px 0;
+    min-width: 180px;
+    box-shadow: 0 4px 16px rgba(0, 0, 0, 0.4);
+  }
+
+  .context-menu-item {
+    padding: 6px 16px;
+    font-size: 13px;
+    color: #e3e3e6;
+    cursor: pointer;
+    user-select: none;
+  }
+
+  .context-menu-item:hover {
+    background-color: #6366f1;
+    color: #ffffff;
+  }
+
+  .context-menu-separator {
+    height: 1px;
+    background-color: #3d3d44;
+    margin: 4px 0;
   }
 </style>

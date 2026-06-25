@@ -5,6 +5,11 @@
 /frontend/node_modules/
 /frontend/dist/
 
+# Visual test output
+/tests/visual/results/
+/tests/visual/test-data/
+/tests/visual/node_modules/
+
 # OS specific files
 .DS_Store
 Thumbs.db

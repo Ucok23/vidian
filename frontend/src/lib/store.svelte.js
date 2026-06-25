@@ -84,18 +84,26 @@ class AppStore {
         
         let fileData;
         if (contentType.includes("application/json")) {
-          // It's binary info returned as JSON
           const info = await res.json();
-          fileData = {
-            name: path.split('/').pop(),
-            path,
-            isBinary: true,
-            mimeType: info.mimeType,
-            size: info.size,
-            content: null
-          };
+          if (info.isSQLite) {
+            fileData = {
+              name: path.split('/').pop(),
+              path,
+              isSQLite: true,
+              size: info.size,
+              content: null
+            };
+          } else {
+            fileData = {
+              name: path.split('/').pop(),
+              path,
+              isBinary: true,
+              mimeType: info.mimeType,
+              size: info.size,
+              content: null
+            };
+          }
         } else if (contentType.includes("image/")) {
-          // Serve image URL directly from backend
           fileData = {
             name: path.split('/').pop(),
             path,
@@ -104,14 +112,27 @@ class AppStore {
             imageUrl: `${API_BASE}/api/file?path=${encodeURIComponent(path)}`,
             content: null
           };
+        } else if (contentType.includes("video/") || contentType.includes("audio/")) {
+          fileData = {
+            name: path.split('/').pop(),
+            path,
+            isBinary: false,
+            isVideo: contentType.includes("video/"),
+            isAudio: contentType.includes("audio/"),
+            mediaUrl: `${API_BASE}/api/file?path=${encodeURIComponent(path)}`,
+            mimeType: contentType,
+            content: null
+          };
         } else {
           // Text
           const content = await res.text();
+          const fileName = path.split('/').pop().toLowerCase();
           fileData = {
             name: path.split('/').pop(),
             path,
             isBinary: false,
             isImage: false,
+            isCSV: fileName.endsWith('.csv') || fileName.endsWith('.tsv'),
             content
           };
         }
@@ -152,6 +173,27 @@ class AppStore {
         }
       }
     }
+  }
+
+  closeOtherFiles(path) {
+    this.openFiles = this.openFiles.filter(f => f.path === path);
+    this.activePath = path;
+  }
+
+  closeFilesToTheRight(path) {
+    const idx = this.openFiles.findIndex(f => f.path === path);
+    if (idx !== -1) {
+      this.openFiles = this.openFiles.slice(0, idx + 1);
+      if (!this.openFiles.some(f => f.path === this.activePath)) {
+        this.activePath = path;
+      }
+    }
+  }
+
+  closeAllFiles() {
+    this.openFiles = [];
+    this.activePath = null;
+    this.activeDiff = null;
   }
 
   async search(query) {
@@ -226,6 +268,13 @@ class AppStore {
           file.isBinary = false;
           file.isImage = true;
           file.imageUrl = `${API_BASE}/api/file?path=${encodeURIComponent(file.path)}&t=${Date.now()}`;
+          file.content = null;
+        } else if (contentType.includes("video/") || contentType.includes("audio/")) {
+          file.isBinary = false;
+          file.isVideo = contentType.includes("video/");
+          file.isAudio = contentType.includes("audio/");
+          file.mediaUrl = `${API_BASE}/api/file?path=${encodeURIComponent(file.path)}&t=${Date.now()}`;
+          file.mimeType = contentType;
           file.content = null;
         } else {
           const content = await res.text();

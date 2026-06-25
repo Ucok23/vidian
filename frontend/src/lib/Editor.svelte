@@ -4,6 +4,8 @@
   import monaco from './monaco.js';
 
   import MarkdownPreview from './MarkdownPreview.svelte';
+  import CsvViewer from './CsvViewer.svelte';
+  import SqliteViewer from './SqliteViewer.svelte';
   import Icon from './Icon.svelte';
   import CommitViewer from './CommitViewer.svelte';
 
@@ -44,13 +46,28 @@
       store.activeLanguage = 'Image';
       return;
     }
-    
+
+    if (file.isVideo || file.isAudio) {
+      store.activeLanguage = file.isVideo ? 'Video' : 'Audio';
+      return;
+    }
+
+    if (file.isCSV) {
+      store.activeLanguage = 'CSV';
+      return;
+    }
+
+    if (file.isSQLite) {
+      store.activeLanguage = 'SQLite';
+      return;
+    }
+
     if (file.isBinary) {
       store.activeLanguage = 'Binary';
       return;
     }
 
-    if (editor && !file.isBinary && !file.isImage) {
+    if (editor && !file.isBinary && !file.isImage && !file.isVideo && !file.isAudio && !file.isCSV && !file.isSQLite) {
       let model = models[file.path];
       
       if (!model) {
@@ -153,7 +170,7 @@
       blameDecorations = [];
     }
 
-    if (file && !file.isBinary && !file.isImage && store.git.isGit) {
+    if (file && !file.isBinary && !file.isImage && !file.isVideo && !file.isAudio && !file.isCSV && !file.isSQLite && store.git.isGit) {
       fetch(`/api/git/blame?path=${encodeURIComponent(file.path)}`)
         .then(res => res.json())
         .then(data => {
@@ -337,6 +354,42 @@
         </div>
       </div>
     </div>
+  {:else if store.activeFile?.isVideo}
+    <!-- Video Player -->
+    <div class="media-previewer">
+      <div class="media-card">
+        <div class="media-header">
+          <span>{store.activeFile.name}</span>
+        </div>
+        <div class="media-body">
+          <!-- svelte-ignore a11y_media_has_caption -->
+          <video controls preload="metadata" src={store.activeFile.mediaUrl}>
+            Your browser does not support video playback.
+          </video>
+        </div>
+      </div>
+    </div>
+  {:else if store.activeFile?.isAudio}
+    <!-- Audio Player -->
+    <div class="media-previewer">
+      <div class="media-card audio-card">
+        <div class="media-header">
+          <span>{store.activeFile.name}</span>
+        </div>
+        <div class="media-body audio-body">
+          <div class="audio-icon">🎵</div>
+          <audio controls preload="metadata" src={store.activeFile.mediaUrl}>
+            Your browser does not support audio playback.
+          </audio>
+        </div>
+      </div>
+    </div>
+  {:else if store.activeFile?.isCSV}
+    <!-- CSV Table Viewer -->
+    <CsvViewer content={store.activeFile.content} />
+  {:else if store.activeFile?.isSQLite}
+    <!-- SQLite Browser -->
+    <SqliteViewer path={store.activeFile.path} />
   {:else if store.activeFile?.isBinary}
     <!-- Binary File Screen -->
     <div class="binary-screen">
@@ -357,7 +410,7 @@
   {/if}
 
   <!-- Full preview pane (markdown default) -->
-  {#if isMarkdown && showPreview && !store.activeDiff && store.activePath && !store.activeFile?.isBinary && !store.activeFile?.isImage && !store.activeFile?.isCommit}
+  {#if isMarkdown && showPreview && !store.activeDiff && store.activePath && !store.activeFile?.isBinary && !store.activeFile?.isImage && !store.activeFile?.isVideo && !store.activeFile?.isAudio && !store.activeFile?.isCSV && !store.activeFile?.isSQLite && !store.activeFile?.isCommit}
     <div class="preview-pane-full">
       <MarkdownPreview content={store.activeFile.content} />
     </div>
@@ -366,7 +419,7 @@
   <!-- The split workspace container (Monaco + optional preview side-by-side) -->
   <div 
     class="editor-split-container"
-    style="display: {store.activePath && !store.activeFile?.isBinary && !store.activeFile?.isImage && !store.activeFile?.isCommit && (!isMarkdown || !showPreview) ? 'flex' : 'none'}"
+    style="display: {store.activePath && !store.activeFile?.isBinary && !store.activeFile?.isImage && !store.activeFile?.isVideo && !store.activeFile?.isAudio && !store.activeFile?.isCSV && !store.activeFile?.isSQLite && !store.activeFile?.isCommit && (!isMarkdown || !showPreview) ? 'flex' : 'none'}"
   >
     <div 
       bind:this={editorContainer} 
@@ -374,7 +427,7 @@
     ></div>
   </div>
 
-  {#if store.activePath && !store.activeFile?.isBinary && !store.activeFile?.isImage && !store.activeFile?.isCommit && isMarkdown}
+  {#if store.activePath && !store.activeFile?.isBinary && !store.activeFile?.isImage && !store.activeFile?.isVideo && !store.activeFile?.isAudio && !store.activeFile?.isCSV && !store.activeFile?.isSQLite && !store.activeFile?.isCommit && isMarkdown}
     <!-- Floating action button: toggle split raw view -->
     <button 
       class="preview-toggle-btn"
@@ -582,6 +635,72 @@
     max-height: 70vh;
     object-fit: contain;
     border-radius: 4px;
+  }
+
+  /* Media Player Styles */
+  .media-previewer {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 100%;
+    height: 100%;
+    background-color: #121214;
+    padding: 2rem;
+    box-sizing: border-box;
+  }
+
+  .media-card {
+    border: 1px solid #2d2d34;
+    border-radius: 8px;
+    overflow: hidden;
+    background-color: #1e1e24;
+    max-width: 90%;
+    max-height: 90%;
+    display: flex;
+    flex-direction: column;
+    box-shadow: 0 10px 30px rgba(0, 0, 0, 0.3);
+  }
+
+  .media-header {
+    background-color: #141416;
+    padding: 8px 16px;
+    font-size: 12px;
+    color: #8e8e93;
+    border-bottom: 1px solid #2d2d34;
+  }
+
+  .media-body {
+    padding: 0;
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    background-color: #0a0a0c;
+  }
+
+  .media-body video {
+    max-width: 100%;
+    max-height: 70vh;
+    outline: none;
+  }
+
+  .audio-card {
+    min-width: 400px;
+  }
+
+  .audio-body {
+    flex-direction: column;
+    padding: 2rem;
+    gap: 1.5rem;
+    background-color: #1e1e24;
+  }
+
+  .audio-icon {
+    font-size: 3rem;
+  }
+
+  .audio-body audio {
+    width: 100%;
+    outline: none;
   }
 
   /* Binary screen styles */

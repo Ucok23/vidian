@@ -3,7 +3,7 @@ CMD        := ./cmd/vidian/main.go
 INSTALL_DIR := /usr/local/bin
 FRONTEND   := ./frontend
 
-.PHONY: all build install uninstall dev clean help
+.PHONY: all build install uninstall dev clean help visual-test
 
 ## help: Show this help message
 help:
@@ -59,6 +59,10 @@ dev:
 	@echo "  Terminal 2 — Go backend in dev mode:"
 	@echo "    go run $(CMD) -dir . -dev -port 8080"
 	@echo ""
+
+## visual-test: Run visual tests with screenshots and video (requires Docker)
+visual-test: all
+	@./tests/visual/run.sh
 
 ## clean: Remove build artifacts
 clean:

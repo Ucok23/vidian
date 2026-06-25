@@ -2,6 +2,7 @@
   import { onMount, tick } from 'svelte';
   import { marked } from 'marked';
   import mermaid from 'mermaid';
+  import { store } from './store.svelte.js';
 
   let { content = '' } = $props();
 
@@ -31,6 +32,44 @@
 
   marked.setOptions({ renderer });
 
+  function handleClick(e) {
+    const link = e.target.closest('a');
+    if (!link) return;
+
+    const href = link.getAttribute('href');
+    if (!href) return;
+
+    // Ignore external links and anchors
+    if (href.startsWith('http://') || href.startsWith('https://') || href.startsWith('#') || href.startsWith('mailto:')) return;
+
+    e.preventDefault();
+
+    // Resolve relative path against the current file's directory
+    const currentPath = store.activePath || '';
+    const currentDir = currentPath.includes('/') ? currentPath.substring(0, currentPath.lastIndexOf('/')) : '';
+    const resolved = resolvePath(currentDir, href);
+
+    store.openFile(resolved);
+  }
+
+  function resolvePath(base, relative) {
+    // Strip any anchor or query
+    const clean = relative.split('#')[0].split('?')[0];
+    if (!clean) return base;
+
+    const parts = base ? base.split('/') : [];
+    const relParts = clean.split('/');
+
+    for (const part of relParts) {
+      if (part === '..') {
+        parts.pop();
+      } else if (part !== '.' && part !== '') {
+        parts.push(part);
+      }
+    }
+    return parts.join('/');
+  }
+
   // Watch content changes
   $effect(() => {
     try {
@@ -59,7 +98,9 @@
   });
 </script>
 
-<div bind:this={previewContainer} class="markdown-body">
+<!-- svelte-ignore a11y_click_events_have_key_events -->
+<!-- svelte-ignore a11y_no_static_element_interactions -->
+<div bind:this={previewContainer} class="markdown-body" onclick={handleClick}>
   {@html renderedHtml}
 </div>
 

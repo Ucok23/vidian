@@ -1,6 +1,7 @@
 package server
 
 import (
+	"database/sql"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -9,10 +10,14 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"regexp"
+	"strconv"
 	"strings"
 	"unicode/utf8"
 
 	"golang.org/x/net/websocket"
+	_ "modernc.org/sqlite"
+
 	"github.com/Ucok23/vidian/internal/config"
 	"github.com/Ucok23/vidian/internal/git"
 	"github.com/Ucok23/vidian/internal/lsp"
@@ -60,6 +65,8 @@ func Start(cfg *config.Config, embeddedFiles fs.FS) {
 	http.HandleFunc("/api/git/log", handleGitLog)
 	http.HandleFunc("/api/git/commit/files", handleGitCommitFiles)
 	http.HandleFunc("/api/git/commit", handleGitCommit)
+	http.HandleFunc("/api/sqlite/tables", handleSQLiteTables)
+	http.HandleFunc("/api/sqlite/query", handleSQLiteQuery)
 	http.Handle("/api/lsp", websocket.Handler(lsp.HandleLSP))
 
 	// Register Frontend serving
@@ -215,9 +222,37 @@ func handleFile(w http.ResponseWriter, r *http.Request) {
 
 	if isBinary {
 		mimeType := http.DetectContentType(content)
+		ext := strings.ToLower(filepath.Ext(safePath))
+		videoMimes := map[string]string{
+			".mp4": "video/mp4", ".webm": "video/webm", ".ogg": "video/ogg", ".mov": "video/quicktime",
+		}
+		audioMimes := map[string]string{
+			".mp3": "audio/mpeg", ".wav": "audio/wav", ".flac": "audio/flac", ".ogg": "audio/ogg", ".m4a": "audio/mp4",
+		}
+		if vm, ok := videoMimes[ext]; ok {
+			w.Header().Set("Content-Type", vm)
+			w.Write(content)
+			return
+		}
+		if am, ok := audioMimes[ext]; ok {
+			w.Header().Set("Content-Type", am)
+			w.Write(content)
+			return
+		}
 		if strings.HasPrefix(mimeType, "image/") {
 			w.Header().Set("Content-Type", mimeType)
 			w.Write(content)
+			return
+		}
+
+		sqliteExts := map[string]bool{".db": true, ".sqlite": true, ".sqlite3": true}
+		if sqliteExts[ext] {
+			w.Header().Set("Content-Type", "application/json")
+			json.NewEncoder(w).Encode(map[string]interface{}{
+				"isSQLite": true,
+				"path":     relPath,
+				"size":     fileInfo.Size(),
+			})
 			return
 		}
 
@@ -529,4 +564,132 @@ func handleGitCommit(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	json.NewEncoder(w).Encode(details)
+}
+
+var validTableName = regexp.MustCompile(`^[a-zA-Z_][a-zA-Z0-9_]*$`)
+
+func handleSQLiteTables(w http.ResponseWriter, r *http.Request) {
+	setupCORS(w, r)
+	if r.Method == "OPTIONS" {
+		return
+	}
+
+	relPath := r.URL.Query().Get("path")
+	safePath, err := config.GetSafePath(relPath)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusForbidden)
+		return
+	}
+
+	db, err := sql.Open("sqlite", safePath+"?mode=ro")
+	if err != nil {
+		http.Error(w, fmt.Sprintf("Failed to open database: %v", err), http.StatusInternalServerError)
+		return
+	}
+	defer db.Close()
+
+	rows, err := db.Query("SELECT name FROM sqlite_master WHERE type='table' ORDER BY name")
+	if err != nil {
+		http.Error(w, fmt.Sprintf("Failed to query tables: %v", err), http.StatusInternalServerError)
+		return
+	}
+	defer rows.Close()
+
+	var tables []string
+	for rows.Next() {
+		var name string
+		if err := rows.Scan(&name); err == nil {
+			tables = append(tables, name)
+		}
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(tables)
+}
+
+func handleSQLiteQuery(w http.ResponseWriter, r *http.Request) {
+	setupCORS(w, r)
+	if r.Method == "OPTIONS" {
+		return
+	}
+
+	relPath := r.URL.Query().Get("path")
+	safePath, err := config.GetSafePath(relPath)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusForbidden)
+		return
+	}
+
+	table := r.URL.Query().Get("table")
+	if !validTableName.MatchString(table) {
+		http.Error(w, "Invalid table name", http.StatusBadRequest)
+		return
+	}
+
+	limit, _ := strconv.Atoi(r.URL.Query().Get("limit"))
+	offset, _ := strconv.Atoi(r.URL.Query().Get("offset"))
+	if limit <= 0 || limit > 500 {
+		limit = 100
+	}
+	if offset < 0 {
+		offset = 0
+	}
+
+	db, err := sql.Open("sqlite", safePath+"?mode=ro")
+	if err != nil {
+		http.Error(w, fmt.Sprintf("Failed to open database: %v", err), http.StatusInternalServerError)
+		return
+	}
+	defer db.Close()
+
+	// Get total row count
+	var totalRows int
+	err = db.QueryRow(fmt.Sprintf("SELECT COUNT(*) FROM \"%s\"", table)).Scan(&totalRows)
+	if err != nil {
+		http.Error(w, fmt.Sprintf("Failed to count rows: %v", err), http.StatusInternalServerError)
+		return
+	}
+
+	// Query data
+	rows, err := db.Query(fmt.Sprintf("SELECT * FROM \"%s\" LIMIT %d OFFSET %d", table, limit, offset))
+	if err != nil {
+		http.Error(w, fmt.Sprintf("Failed to query table: %v", err), http.StatusInternalServerError)
+		return
+	}
+	defer rows.Close()
+
+	columns, err := rows.Columns()
+	if err != nil {
+		http.Error(w, fmt.Sprintf("Failed to get columns: %v", err), http.StatusInternalServerError)
+		return
+	}
+
+	var data [][]interface{}
+	for rows.Next() {
+		values := make([]interface{}, len(columns))
+		ptrs := make([]interface{}, len(columns))
+		for i := range values {
+			ptrs[i] = &values[i]
+		}
+		if err := rows.Scan(ptrs...); err != nil {
+			continue
+		}
+		row := make([]interface{}, len(columns))
+		for i, v := range values {
+			switch val := v.(type) {
+			case []byte:
+				row[i] = string(val)
+			default:
+				row[i] = val
+			}
+		}
+		data = append(data, row)
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(map[string]interface{}{
+		"columns":   columns,
+		"rows":      data,
+		"totalRows": totalRows,
+	})
 }
