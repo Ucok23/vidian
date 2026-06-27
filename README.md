@@ -47,14 +47,14 @@ Three ways to install — pick what fits your workflow.
 Downloads a pre-built binary for your OS and architecture:
 
 ```bash
-curl -sSL https://raw.githubusercontent.com/Ucok23/vidian/main/install.sh | bash
+curl -sSL https://raw.githubusercontent.com/Ucok23/vidian/master/install.sh | bash
 ```
 
 **Supports:** Linux (amd64, arm64), macOS (amd64, arm64), Windows via Git Bash (amd64, arm64)
 
 To pin a specific version:
 ```bash
-VIDIAN_VERSION=v1.0.0 curl -sSL https://raw.githubusercontent.com/Ucok23/vidian/main/install.sh | bash
+VIDIAN_VERSION=v1.0.0 curl -sSL https://raw.githubusercontent.com/Ucok23/vidian/master/install.sh | bash
 ```
 
 On Git Bash the binary is placed in `~/bin` — make sure that's on your `PATH`.
@@ -64,7 +64,7 @@ On Git Bash the binary is placed in `~/bin` — make sure that's on your `PATH`.
 ### Method 2: PowerShell *(Windows)*
 
 ```powershell
-irm https://raw.githubusercontent.com/Ucok23/vidian/main/install.ps1 | iex
+irm https://raw.githubusercontent.com/Ucok23/vidian/master/install.ps1 | iex
 ```
 
 Installs to `%LOCALAPPDATA%\Programs\Vidian` and adds it to your user `PATH` automatically. To pin a version:

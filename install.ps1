@@ -9,7 +9,7 @@
 .PARAMETER Version
     Pin a specific release tag, e.g. "v1.2.0". Defaults to the latest release.
 .EXAMPLE
-    irm https://raw.githubusercontent.com/Ucok23/vidian/main/install.ps1 | iex
+    irm https://raw.githubusercontent.com/Ucok23/vidian/master/install.ps1 | iex
 .EXAMPLE
     .\install.ps1 -Version v1.0.0
 #>
