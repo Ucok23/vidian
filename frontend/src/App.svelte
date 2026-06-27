@@ -302,9 +302,9 @@
           <Icon name="folder" size={12} color="#ffffff" />
           <span>{store.workspace.name || 'loading...'}</span>
         </div>
-        <div class="status-item clickable" onclick={() => store.init()}>
+        <div class="status-item clickable" onclick={() => store.reloadWorkspace()} title="Reload directories, open files, and git state from disk">
           <Icon name="refresh" size={12} />
-          <span>Synchronized</span>
+          <span>Refresh</span>
         </div>
         {#if store.activePath}
           <div class="status-item text-dimmed">

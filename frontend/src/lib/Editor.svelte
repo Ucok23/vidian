@@ -85,7 +85,10 @@
 
     if (editor && !file.isBinary && !file.isImage && !file.isVideo && !file.isAudio && !file.isCSV && !file.isSQLite) {
       let model = models[file.path];
-      
+      // Read content here so this effect re-runs when a Refresh re-pulls the
+      // file from disk, letting us sync an already-cached model's contents.
+      const latestContent = file.content;
+
       if (!model) {
         // Construct absolute file URI matching the LSP workspace path
         const uri = monaco.Uri.parse(`file://${store.workspace.path}/${file.path}`);
@@ -97,13 +100,16 @@
           const lang = monaco.languages.getLanguages().find(l => l.extensions && l.extensions.includes(ext));
           const languageId = lang ? lang.id : undefined;
 
-          model = monaco.editor.createModel(file.content, languageId, uri);
+          model = monaco.editor.createModel(latestContent, languageId, uri);
           model.updateOptions({ tabSize: 2, insertSpaces: true });
         }
-        
+
         models[file.path] = model;
+      } else if (typeof latestContent === 'string' && model.getValue() !== latestContent) {
+        // File was reloaded from disk (Refresh) — update the cached model in place.
+        model.setValue(latestContent);
       }
-      
+
       editor.setModel(model);
       const langId = (typeof model.getLanguageId === 'function') ? model.getLanguageId() : (typeof model.getModeId === 'function' ? model.getModeId() : 'plaintext');
       store.activeLanguage = langId.charAt(0).toUpperCase() + langId.slice(1);

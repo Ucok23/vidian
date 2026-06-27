@@ -255,6 +255,12 @@ class AppStore {
     }
     const filesToKeep = [];
     for (const file of this.openFiles) {
+      // Virtual tabs (commit details, commit graph) aren't backed by a file on
+      // disk — keep them as-is instead of trying to re-fetch and dropping them.
+      if (file.isCommit || file.isGraph) {
+        filesToKeep.push(file);
+        continue;
+      }
       try {
         const res = await fetch(`${API_BASE}/api/file?path=${encodeURIComponent(file.path)}`);
         if (res.status === 404) {
