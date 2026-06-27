@@ -42,7 +42,11 @@ Three ways to install — pick what fits your workflow.
 
 ---
 
-### Method 1: One-liner script *(Linux / macOS / Git Bash)*
+> **Windows:** native Windows is not supported. Install [WSL](https://learn.microsoft.com/windows/wsl/install) first, then follow the Linux instructions below.
+
+---
+
+### Method 1: One-liner script *(Recommended)*
 
 Downloads a pre-built binary for your OS and architecture:
 
@@ -50,34 +54,16 @@ Downloads a pre-built binary for your OS and architecture:
 curl -sSL https://raw.githubusercontent.com/Ucok23/vidian/master/install.sh | bash
 ```
 
-**Supports:** Linux (amd64, arm64), macOS (amd64, arm64), Windows via Git Bash (amd64, arm64)
+**Supports:** Linux (amd64, arm64), macOS (amd64, arm64), WSL
 
 To pin a specific version:
 ```bash
 VIDIAN_VERSION=v1.0.0 curl -sSL https://raw.githubusercontent.com/Ucok23/vidian/master/install.sh | bash
 ```
 
-On Git Bash the binary is placed in `~/bin` — make sure that's on your `PATH`.
-
 ---
 
-### Method 2: PowerShell *(Windows)*
-
-```powershell
-irm https://raw.githubusercontent.com/Ucok23/vidian/master/install.ps1 | iex
-```
-
-Installs to `%LOCALAPPDATA%\Programs\Vidian` and adds it to your user `PATH` automatically. To pin a version:
-
-```powershell
-.\install.ps1 -Version v1.0.0
-```
-
-> The binary is unsigned, so Windows SmartScreen may warn on first launch — choose **More info → Run anyway**.
-
----
-
-### Method 3: Build from source *(Linux / macOS — for contributors)*
+### Method 2: Build from source *(For contributors)*
 
 Clone and use the Makefile:
 

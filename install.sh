@@ -5,7 +5,6 @@ REPO="Ucok23/vidian"
 BINARY="vidian"
 INSTALL_DIR="/usr/local/bin"
 TMP_DIR=$(mktemp -d)
-WINDOWS=0
 
 # --- Colors ---
 GREEN="\033[0;32m"
@@ -35,13 +34,8 @@ esac
 
 case $OS in
   linux|darwin) ;;
-  mingw*|msys*|cygwin*)
-    OS="windows"
-    WINDOWS=1
-    BINARY="vidian.exe"
-    INSTALL_DIR="$HOME/bin"
-    ;;
-  *) print_err "Unsupported OS: $OS. Please build from source." ;;
+  mingw*|msys*|cygwin*) print_err "Windows is not supported. Please use WSL: https://learn.microsoft.com/windows/wsl/install" ;;
+  *) print_err "Unsupported OS: $OS." ;;
 esac
 
 ASSET_NAME="vidian_${OS}_${ARCH}"
@@ -61,35 +55,21 @@ fi
 print_step "Installing Vidian ${VERSION} (${OS}/${ARCH})..."
 
 # --- Download ---
-if [ "$WINDOWS" = "1" ]; then
-  DOWNLOAD_URL="https://github.com/${REPO}/releases/download/${VERSION}/${ASSET_NAME}.zip"
-else
-  DOWNLOAD_URL="https://github.com/${REPO}/releases/download/${VERSION}/${ASSET_NAME}.tar.gz"
-fi
+DOWNLOAD_URL="https://github.com/${REPO}/releases/download/${VERSION}/${ASSET_NAME}.tar.gz"
 print_step "Downloading from: $DOWNLOAD_URL"
 
-if [ "$WINDOWS" = "1" ]; then
-  curl -fsSL "$DOWNLOAD_URL" -o "${TMP_DIR}/${ASSET_NAME}.zip" \
-    || print_err "Download failed. Check https://github.com/${REPO}/releases for available versions."
-  unzip -q "${TMP_DIR}/${ASSET_NAME}.zip" -d "${TMP_DIR}" \
-    || print_err "Extraction failed. Is 'unzip' available? Try: winget install GnuWin32.UnZip"
-else
-  curl -fsSL "$DOWNLOAD_URL" -o "${TMP_DIR}/${ASSET_NAME}.tar.gz" \
-    || print_err "Download failed. Check https://github.com/${REPO}/releases for available versions."
-  tar -xzf "${TMP_DIR}/${ASSET_NAME}.tar.gz" -C "${TMP_DIR}"
-fi
+curl -fsSL "$DOWNLOAD_URL" -o "${TMP_DIR}/${ASSET_NAME}.tar.gz" \
+  || print_err "Download failed. Check https://github.com/${REPO}/releases for available versions."
+
+tar -xzf "${TMP_DIR}/${ASSET_NAME}.tar.gz" -C "${TMP_DIR}"
 
 # --- Install ---
-if [ "$WINDOWS" = "1" ]; then
-  mkdir -p "$INSTALL_DIR"
-  print_step "Installing to ${INSTALL_DIR}/${BINARY}..."
-  cp "${TMP_DIR}/${BINARY}" "${INSTALL_DIR}/${BINARY}"
-elif [ -w "$INSTALL_DIR" ]; then
-  print_step "Installing to ${INSTALL_DIR}/${BINARY}..."
+print_step "Installing to ${INSTALL_DIR}/${BINARY}..."
+
+if [ -w "$INSTALL_DIR" ]; then
   cp "${TMP_DIR}/${BINARY}" "${INSTALL_DIR}/${BINARY}"
   chmod +x "${INSTALL_DIR}/${BINARY}"
 else
-  print_step "Installing to ${INSTALL_DIR}/${BINARY} (requires sudo)..."
   sudo cp "${TMP_DIR}/${BINARY}" "${INSTALL_DIR}/${BINARY}"
   sudo chmod +x "${INSTALL_DIR}/${BINARY}"
 fi
@@ -108,10 +88,6 @@ else
   echo ""
   echo -e "  ${RED}'${BINARY}' not found in PATH after install.${RESET}"
   echo "  Add ${INSTALL_DIR} to your PATH:"
-  if [ "$WINDOWS" = "1" ]; then
-    echo "    export PATH=\"\$PATH:${INSTALL_DIR}\"   # add to ~/.bashrc for Git Bash"
-  else
-    echo "    export PATH=\"\$PATH:${INSTALL_DIR}\""
-  fi
+  echo "    export PATH=\"\$PATH:${INSTALL_DIR}\""
   echo ""
 fi
