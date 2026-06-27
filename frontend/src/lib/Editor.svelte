@@ -9,6 +9,7 @@
   import Icon from './Icon.svelte';
   import CommitViewer from './CommitViewer.svelte';
   import CommitGraph from './CommitGraph.svelte';
+  import InsightsPanel from './InsightsPanel.svelte';
 
   let editorContainer = $state(null);
   let editor = $state.raw(null);
@@ -505,6 +506,9 @@
   {:else if store.activeFile?.isGraph}
     <!-- Commit Graph -->
     <CommitGraph />
+  {:else if store.activeFile?.isInsights}
+    <!-- Repo Insights -->
+    <InsightsPanel />
   {:else if !store.activePath}
     <!-- Empty State / Welcome Screen -->
     <div class="welcome-screen">

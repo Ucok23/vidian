@@ -3,6 +3,7 @@ package git
 import (
 	"fmt"
 	"os/exec"
+	"sort"
 	"strings"
 	"time"
 
@@ -672,4 +673,56 @@ func GetDiffStat(ref1, ref2 string) (string, error) {
 	return RunGitCommand("diff", "--stat", ref1+"..."+ref2)
 }
 
+func GetActivityDates() ([]string, error) {
+	out, err := RunGitCommand("log", "--all", "--format=%ad", "--date=short", "--since=1.year.ago")
+	if err != nil {
+		return []string{}, err
+	}
+	dates := []string{}
+	for _, line := range strings.Split(out, "\n") {
+		line = strings.TrimSpace(line)
+		if line != "" {
+			dates = append(dates, line)
+		}
+	}
+	return dates, nil
+}
+
+type HotFile struct {
+	Path    string `json:"path"`
+	Commits int    `json:"commits"`
+}
+
+func GetHotFiles(n int) ([]HotFile, error) {
+	out, err := RunGitCommand("log", "--all", "--since=1.year.ago", "--pretty=format:", "--name-only")
+	if err != nil {
+		return []HotFile{}, err
+	}
+	counts := make(map[string]int)
+	for _, line := range strings.Split(out, "\n") {
+		line = strings.TrimSpace(line)
+		if line != "" {
+			counts[line]++
+		}
+	}
+	type entry struct {
+		path    string
+		commits int
+	}
+	entries := make([]entry, 0, len(counts))
+	for path, count := range counts {
+		entries = append(entries, entry{path, count})
+	}
+	sort.Slice(entries, func(i, j int) bool {
+		return entries[i].commits > entries[j].commits
+	})
+	if len(entries) > n {
+		entries = entries[:n]
+	}
+	hotFiles := make([]HotFile, len(entries))
+	for i, e := range entries {
+		hotFiles[i] = HotFile{Path: e.path, Commits: e.commits}
+	}
+	return hotFiles, nil
+}
 
