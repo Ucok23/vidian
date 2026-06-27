@@ -16,90 +16,66 @@ test('12-gitlens-graph', async ({ page, baseUrl, snap, log }) => {
   await snap('01-git-panel-open');
   log('Git panel opened');
 
-  // ── COMMIT GRAPH ──────────────────────────────────────────────────────────
-  const graphHeader = page.locator('.section-header').filter({ hasText: 'COMMIT GRAPH' });
-  if (await graphHeader.count() === 0) {
-    throw new Error('COMMIT GRAPH section not found in git panel');
+  // ── OPEN COMMIT GRAPH (main-area view) ────────────────────────────────────
+  const graphBtn = page.locator('.graph-btn', { hasText: 'Open Commit Graph' });
+  if (await graphBtn.count() === 0) {
+    throw new Error('"Open Commit Graph" button not found in git panel toolbar');
   }
 
-  await graphHeader.click();
-  await page.waitForTimeout(3000); // git log --graph can be slow
-  await snap('02-graph-section-expanded');
-  log('COMMIT GRAPH section expanded — waiting for output');
+  await graphBtn.click();
+  await page.waitForTimeout(1500);
+  await snap('02-graph-view-opened');
+  log('Commit Graph view opened in main area');
 
-  const graphSection = page.locator('.panel-section').filter({ hasText: 'COMMIT GRAPH' });
+  // A graph tab should now be active
+  const graphTab = page.locator('.tab', { hasText: 'Commit Graph' });
+  if (await graphTab.count() === 0) throw new Error('Commit Graph tab not created');
+  log('Commit Graph tab present');
 
-  // Wait for graph output element
-  const graphOutput = graphSection.locator('.graph-output');
-  try {
-    await graphOutput.waitFor({ state: 'visible', timeout: 8000 });
-    log('Graph output element visible');
-  } catch {
-    log('Graph output did not appear within timeout');
-    await snap('03-graph-timeout');
+  // Wait for the graph SVG + rows to render
+  const graphView = page.locator('.graph-view');
+  await graphView.waitFor({ state: 'visible', timeout: 8000 });
 
-    // Check for loading indicator
-    const loading = graphSection.locator('.loading-text, .spinner');
-    if (await loading.count() > 0) {
-      log('Loading indicator visible — still loading');
-    } else {
-      log('No loading indicator either — may have failed');
-    }
-    return;
+  const svg = page.locator('.graph-svg');
+  await svg.waitFor({ state: 'visible', timeout: 8000 });
+
+  const nodeCount = await page.locator('.graph-svg circle').count();
+  const edgeCount = await page.locator('.graph-svg path').count();
+  const rowCount = await page.locator('.graph-view .row').count();
+  log(`Graph rendered: ${nodeCount} nodes, ${edgeCount} edges, ${rowCount} commit rows`);
+
+  if (nodeCount === 0) throw new Error('No commit nodes drawn in graph');
+  if (rowCount === 0) throw new Error('No commit rows rendered');
+
+  await snap('03-graph-rendered');
+
+  // Verify ref pills (HEAD/branch) are present
+  const refPills = await page.locator('.graph-view .ref-pill').count();
+  log(`Ref pills (branches/tags) shown: ${refPills}`);
+
+  // Verify a commit row shows hash + author + date
+  const firstHash = await page.locator('.graph-view .row .hash').first().textContent().catch(() => '');
+  log(`First commit hash shown: ${firstHash.trim()}`);
+  if (!/^[0-9a-f]{7}$/.test(firstHash.trim())) {
+    throw new Error(`Expected a 7-char short hash, got "${firstHash.trim()}"`);
   }
 
-  await snap('03-graph-loaded');
-
-  // Read graph content
-  const graphText = await graphOutput.textContent().catch(() => '');
-  const lines = graphText.trim().split('\n');
-  log(`Commit graph lines: ${lines.length}`);
-  log(`First line: ${lines[0]?.trim().slice(0, 80) || '(empty)'}`);
-
-  // Verify it contains git graph symbols (*, |, /)
-  const hasGraphSymbols = /[*|\/\\]/.test(graphText);
-  log(`Graph symbols present: ${hasGraphSymbols}`);
-
-  if (!hasGraphSymbols && graphText.length > 0) {
-    log('Graph text present but no branch-line symbols (may be a simple linear history)');
-  }
-
-  if (lines.length === 0 || graphText.trim().length === 0) {
-    throw new Error('Commit graph output is empty');
-  }
-
-  // Scroll the graph panel to show more entries
-  await graphOutput.evaluate(el => { el.scrollTop = el.scrollHeight / 2; });
-  await page.waitForTimeout(400);
-  await snap('04-graph-scrolled-middle');
-  log('Scrolled to middle of commit graph');
-
-  // Scroll to bottom
-  await graphOutput.evaluate(el => { el.scrollTop = el.scrollHeight; });
-  await page.waitForTimeout(400);
-  await snap('05-graph-scrolled-bottom');
-  log('Scrolled to bottom of commit graph');
-
-  // Scroll back to top
-  await graphOutput.evaluate(el => { el.scrollTop = 0; });
+  // Scroll the graph
+  const scroll = page.locator('.graph-scroll');
+  await scroll.evaluate(el => { el.scrollTop = el.scrollHeight / 2; });
   await page.waitForTimeout(300);
-  await snap('06-graph-top');
+  await snap('04-graph-scrolled');
 
-  // ── Collapse and re-expand to verify state persists ───────────────────────
-  await graphHeader.click();
-  await page.waitForTimeout(400);
-  await snap('07-graph-collapsed');
-  log('Graph section collapsed');
+  await scroll.evaluate(el => { el.scrollTop = 0; });
+  await page.waitForTimeout(200);
 
-  await graphHeader.click();
-  await page.waitForTimeout(1000);
-  await snap('08-graph-re-expanded');
-  log('Graph section re-expanded (should not re-fetch if already loaded)');
+  // Click a commit row → should open the commit detail viewer
+  await page.locator('.graph-view .row').nth(1).click();
+  await page.waitForTimeout(1200);
+  await snap('05-commit-opened-from-graph');
+  const commitTab = await page.locator('.tab', { hasText: 'Commit:' }).count();
+  log(`Commit detail tab opened from graph: ${commitTab > 0}`);
 
-  const graphOutputAfter = graphSection.locator('.graph-output');
-  const textAfter = await graphOutputAfter.textContent().catch(() => '');
-  log(`Graph still has content after toggle: ${textAfter.trim().length > 0}`);
-
-  await snap('09-final-state');
-  log(`Commit graph test complete — ${lines.length} graph lines verified`);
+  await snap('06-final-state');
+  log(`Commit graph test complete — ${nodeCount} nodes, ${rowCount} rows verified`);
 });

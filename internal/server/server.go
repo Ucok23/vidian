@@ -690,13 +690,13 @@ func handleGitGraph(w http.ResponseWriter, r *http.Request) {
 	if r.Method == "OPTIONS" {
 		return
 	}
-	w.Header().Set("Content-Type", "text/plain")
-	result, err := git.GetCommitGraph()
+	w.Header().Set("Content-Type", "application/json")
+	result, err := git.GetCommitGraphData()
 	if err != nil {
-		w.Write([]byte(""))
+		json.NewEncoder(w).Encode([]git.GraphCommit{})
 		return
 	}
-	w.Write([]byte(result))
+	json.NewEncoder(w).Encode(result)
 }
 
 func handleGitBlameAt(w http.ResponseWriter, r *http.Request) {

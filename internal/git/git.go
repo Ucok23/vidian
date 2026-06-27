@@ -530,8 +530,50 @@ func GetLineHistory(path string, startLine, endLine int) ([]CommitInfo, error) {
 	return commits, nil
 }
 
-func GetCommitGraph() (string, error) {
-	return RunGitCommand("log", "--graph", "--oneline", "--all", "--decorate", "-n", "80")
+// GraphCommit is a single commit with the parent links needed to lay out a
+// visual commit graph on the frontend.
+type GraphCommit struct {
+	Hash    string   `json:"hash"`
+	Parents []string `json:"parents"`
+	Author  string   `json:"author"`
+	Date    string   `json:"date"`
+	Refs    string   `json:"refs"`
+	Subject string   `json:"subject"`
+}
+
+// GetCommitGraphData returns structured commit data (across all refs, in
+// topological/date order) for rendering a lane-based commit graph.
+func GetCommitGraphData() ([]GraphCommit, error) {
+	const sep = "\x1f"
+	format := "%H" + sep + "%P" + sep + "%an" + sep + "%aI" + sep + "%D" + sep + "%s"
+	out, err := RunGitCommand("log", "--all", "--date-order", "--pretty=format:"+format, "-n", "300")
+	if err != nil {
+		return nil, err
+	}
+
+	commits := []GraphCommit{}
+	for _, line := range strings.Split(out, "\n") {
+		if strings.TrimSpace(line) == "" {
+			continue
+		}
+		fields := strings.Split(line, sep)
+		if len(fields) < 6 {
+			continue
+		}
+		parents := []string{}
+		if p := strings.TrimSpace(fields[1]); p != "" {
+			parents = strings.Fields(p)
+		}
+		commits = append(commits, GraphCommit{
+			Hash:    fields[0],
+			Parents: parents,
+			Author:  fields[2],
+			Date:    fields[3],
+			Refs:    fields[4],
+			Subject: fields[5],
+		})
+	}
+	return commits, nil
 }
 
 func BlameAtCommit(path, commit string) ([]BlameLine, error) {

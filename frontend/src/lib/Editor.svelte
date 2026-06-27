@@ -8,6 +8,7 @@
   import SqliteViewer from './SqliteViewer.svelte';
   import Icon from './Icon.svelte';
   import CommitViewer from './CommitViewer.svelte';
+  import CommitGraph from './CommitGraph.svelte';
 
   let editorContainer = $state(null);
   let editor = $state.raw(null);
@@ -495,6 +496,9 @@
   {:else if store.activeFile?.isCommit}
     <!-- Commit Viewer -->
     <CommitViewer commit={store.activeFile.commitInfo} />
+  {:else if store.activeFile?.isGraph}
+    <!-- Commit Graph -->
+    <CommitGraph />
   {:else if !store.activePath}
     <!-- Empty State / Welcome Screen -->
     <div class="welcome-screen">
@@ -622,7 +626,7 @@
     </button>
   {/if}
 
-  {#if store.activePath && !store.activeFile?.isBinary && !store.activeFile?.isImage && !store.activeFile?.isVideo && !store.activeFile?.isAudio && !store.activeFile?.isCSV && !store.activeFile?.isSQLite && !store.activeFile?.isCommit && !store.activeDiff}
+  {#if store.activePath && !store.activeFile?.isBinary && !store.activeFile?.isImage && !store.activeFile?.isVideo && !store.activeFile?.isAudio && !store.activeFile?.isCSV && !store.activeFile?.isSQLite && !store.activeFile?.isCommit && !store.activeFile?.isGraph && !store.activeDiff}
     <div class="editor-actions">
       {#if store.git.isGit}
         <button

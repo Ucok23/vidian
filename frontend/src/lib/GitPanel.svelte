@@ -26,8 +26,6 @@
   let compareRef1 = $state('');
   let compareRef2 = $state('');
   let isComparing = $state(false);
-  let graphOutput = $state('');
-  let isLoadingGraph = $state(false);
 
   // Accordion open/collapse states
   let showChanges = $state(true);
@@ -40,7 +38,6 @@
   let showStashes = $state(false);
   let showTags = $state(false);
   let showCompare = $state(false);
-  let showGraph = $state(false);
 
   async function loadChanges() {
     isLoadingChanges = true;
@@ -126,15 +123,6 @@
     finally { isComparing = false; }
   }
 
-  async function loadGraph() {
-    isLoadingGraph = true;
-    try {
-      const res = await fetch('/api/git/graph');
-      graphOutput = await res.text();
-    } catch (e) { graphOutput = ''; }
-    finally { isLoadingGraph = false; }
-  }
-
   async function loadCommits() {
     isLoadingCommits = true;
     try {
@@ -172,6 +160,16 @@
 </script>
 
 <div class="git-panel">
+  <!-- TOOLBAR -->
+  <div class="panel-toolbar">
+    <!-- svelte-ignore a11y_click_events_have_key_events -->
+    <!-- svelte-ignore a11y_no_static_element_interactions -->
+    <button class="graph-btn" onclick={() => store.openGraph()} title="Open the commit graph in the main area">
+      <Icon name="graph" size={15} />
+      <span>Open Commit Graph</span>
+    </button>
+  </div>
+
   <!-- CHANGES SECTION -->
   <div class="panel-section">
     <!-- svelte-ignore a11y_click_events_have_key_events -->
@@ -508,27 +506,6 @@
               </div>
             {/each}
           </div>
-        {/if}
-      </div>
-    {/if}
-  </div>
-
-  <!-- COMMIT GRAPH SECTION -->
-  <div class="panel-section">
-    <!-- svelte-ignore a11y_click_events_have_key_events -->
-    <!-- svelte-ignore a11y_no_static_element_interactions -->
-    <div class="section-header" onclick={() => { showGraph = !showGraph; if (showGraph && !graphOutput) loadGraph(); }}>
-      <Icon name={showGraph ? 'chevronDown' : 'chevronRight'} size={14} />
-      <span class="title">COMMIT GRAPH</span>
-    </div>
-    {#if showGraph}
-      <div class="section-content">
-        {#if isLoadingGraph}
-          <div class="loading-text">Loading graph…</div>
-        {:else if !graphOutput}
-          <div class="empty-state">No graph data</div>
-        {:else}
-          <pre class="graph-output">{graphOutput}</pre>
         {/if}
       </div>
     {/if}
@@ -880,17 +857,30 @@
   .commit-summary.no-click { cursor: default; }
   .commit-summary.no-click:hover { background: none; }
 
-  .graph-output {
-    font-family: 'Fira Code', monospace;
-    font-size: 10px;
-    color: #a3a3b0;
-    margin: 0;
-    padding: 10px 12px;
-    overflow-x: auto;
-    white-space: pre;
-    line-height: 1.5;
-    background: #141418;
-    border-top: 1px solid #2d2d34;
+  .panel-toolbar {
+    padding: 8px 10px;
+    border-bottom: 1px solid #2d2d34;
+    flex-shrink: 0;
+  }
+  .graph-btn {
+    width: 100%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 8px;
+    padding: 7px 10px;
+    background: rgba(99, 102, 241, 0.12);
+    border: 1px solid rgba(99, 102, 241, 0.3);
+    border-radius: 6px;
+    color: #a5b4fc;
+    font-size: 12px;
+    font-weight: 600;
+    cursor: pointer;
+    transition: background 0.15s, color 0.15s;
+  }
+  .graph-btn:hover {
+    background: rgba(99, 102, 241, 0.22);
+    color: #c7d2fe;
   }
 
   .current-badge {

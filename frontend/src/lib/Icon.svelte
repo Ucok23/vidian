@@ -17,7 +17,9 @@
     eye: `<path d="M2 12s3-7 10-7 10 7 10 7-3 7-10 7-10-7-10-7Z"/><circle cx="12" cy="12" r="3"/>`,
     split: `<rect width="18" height="18" x="3" y="3" rx="2"/><path d="M12 3v18"/>`,
     gitCommit: `<path d="M12 15a3 3 0 1 0 0-6 3 3 0 0 0 0 6Z"/><path d="M3 12h6"/><path d="M15 12h6"/>`,
-    clock: `<circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/>`
+    clock: `<circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/>`,
+    tag: `<path d="M12.586 2.586A2 2 0 0 0 11.172 2H4a2 2 0 0 0-2 2v7.172a2 2 0 0 0 .586 1.414l8.704 8.704a2.426 2.426 0 0 0 3.42 0l6.58-6.58a2.426 2.426 0 0 0 0-3.42z"/><circle cx="7.5" cy="7.5" r=".5" fill="currentColor"/>`,
+    graph: `<circle cx="5" cy="6" r="2"/><circle cx="5" cy="18" r="2"/><circle cx="13" cy="12" r="2"/><path d="M5 8v8"/><path d="M7 6h3a2 2 0 0 1 2 2v2"/><path d="M7 18h3a2 2 0 0 0 2-2v-2"/>`
   };
 
   // Adjust folderOpen path to look correct as outline

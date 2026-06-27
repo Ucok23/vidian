@@ -218,7 +218,7 @@
           class="tab"
           class:active={store.activePath === file.path}
           onclick={() => {
-            if (file.isCommit) {
+            if (file.isCommit || file.isGraph) {
               store.activeDiff = null;
               store.activePath = file.path;
             } else {
@@ -228,7 +228,9 @@
           oncontextmenu={(e) => showTabContextMenu(e, file.path)}
           title={file.path}
         >
-          {#if file.isCommit}
+          {#if file.isGraph}
+            <Icon name="branch" size={14} color="#6366f1" />
+          {:else if file.isCommit}
             <Icon name="gitCommit" size={14} color="#fbbf24" />
           {:else}
             <Icon name="file" size={14} color={getFileColor(file.name)} />

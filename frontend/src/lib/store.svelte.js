@@ -335,6 +335,20 @@ class AppStore {
     }
   }
 
+  openGraph() {
+    this.activeDiff = null;
+    const tabPath = 'graph:';
+    const exists = this.openFiles.some(f => f.path === tabPath);
+    if (!exists) {
+      this.openFiles.push({
+        name: 'Commit Graph',
+        path: tabPath,
+        isGraph: true
+      });
+    }
+    this.activePath = tabPath;
+  }
+
   async openCommit(hash) {
     this.activeDiff = null;
     const tabPath = `commit:${hash}`;
