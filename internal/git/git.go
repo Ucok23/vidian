@@ -178,7 +178,7 @@ func Blame(path string) ([]BlameLine, error) {
 			attr := commits[currentCommit]
 			blameLines = append(blameLines, BlameLine{
 				Line:    finalLineNum,
-				Commit:  currentCommit[:8],
+				Commit:  currentCommit,
 				Author:  attr["author"],
 				Date:    attr["date"],
 				Summary: attr["summary"],
@@ -333,4 +333,301 @@ func GetCommitDetails(hash string) (CommitDetails, error) {
 		Files:    files,
 	}, nil
 }
+
+type Stash struct {
+	Index   int    `json:"index"`
+	Branch  string `json:"branch"`
+	Message string `json:"message"`
+	Hash    string `json:"hash"`
+}
+
+type Tag struct {
+	Name    string `json:"name"`
+	Hash    string `json:"hash"`
+	Date    string `json:"date"`
+	Message string `json:"message"`
+}
+
+type Contributor struct {
+	Name    string `json:"name"`
+	Email   string `json:"email"`
+	Commits int    `json:"commits"`
+}
+
+func GetStashes() ([]Stash, error) {
+	out, err := RunGitCommand("stash", "list", "--format=%gd|||%H|||%gs")
+	if err != nil {
+		return []Stash{}, err
+	}
+
+	stashes := []Stash{}
+	lines := strings.Split(out, "\n")
+	for i, line := range lines {
+		line = strings.TrimSpace(line)
+		if line == "" {
+			continue
+		}
+		parts := strings.SplitN(line, "|||", 3)
+		if len(parts) < 3 {
+			continue
+		}
+		// parts[0] is like "stash@{0}", extract index from it
+		ref := parts[0] // e.g. "stash@{0}"
+		idx := i
+		// try to parse the index from the ref
+		start := strings.Index(ref, "{")
+		end := strings.Index(ref, "}")
+		if start >= 0 && end > start {
+			fmt.Sscanf(ref[start+1:end], "%d", &idx)
+		}
+		stashes = append(stashes, Stash{
+			Index:   idx,
+			Hash:    parts[1],
+			Branch:  ref,
+			Message: parts[2],
+		})
+	}
+	return stashes, nil
+}
+
+func GetTags() ([]Tag, error) {
+	out, err := RunGitCommand("tag", "-l", "--sort=-creatordate",
+		"--format=%(refname:short)|||%(objectname:short)|||%(creatordate:short)|||%(subject)")
+	if err != nil {
+		return []Tag{}, err
+	}
+
+	tags := []Tag{}
+	lines := strings.Split(out, "\n")
+	for _, line := range lines {
+		line = strings.TrimSpace(line)
+		if line == "" {
+			continue
+		}
+		parts := strings.SplitN(line, "|||", 4)
+		if len(parts) < 4 {
+			continue
+		}
+		tags = append(tags, Tag{
+			Name:    parts[0],
+			Hash:    parts[1],
+			Date:    parts[2],
+			Message: parts[3],
+		})
+	}
+	return tags, nil
+}
+
+func GetContributors() ([]Contributor, error) {
+	out, err := RunGitCommand("shortlog", "-sne", "HEAD")
+	if err != nil {
+		return []Contributor{}, err
+	}
+
+	contributors := []Contributor{}
+	lines := strings.Split(out, "\n")
+	for _, line := range lines {
+		line = strings.TrimSpace(line)
+		if line == "" {
+			continue
+		}
+		// format: "  42\tName <email@example.com>"
+		tabIdx := strings.Index(line, "\t")
+		if tabIdx < 0 {
+			continue
+		}
+		countStr := strings.TrimSpace(line[:tabIdx])
+		rest := strings.TrimSpace(line[tabIdx+1:])
+
+		var count int
+		fmt.Sscanf(countStr, "%d", &count)
+
+		name := rest
+		email := ""
+		ltIdx := strings.Index(rest, "<")
+		gtIdx := strings.Index(rest, ">")
+		if ltIdx >= 0 && gtIdx > ltIdx {
+			name = strings.TrimSpace(rest[:ltIdx])
+			email = rest[ltIdx+1 : gtIdx]
+		}
+
+		contributors = append(contributors, Contributor{
+			Name:    name,
+			Email:   email,
+			Commits: count,
+		})
+	}
+	return contributors, nil
+}
+
+func SearchCommits(q, author, file string) ([]CommitInfo, error) {
+	args := []string{"log", "-n", "100", "--format=%H|%an|%ae|%ad|%ar|%s"}
+	if q != "" {
+		args = append(args, "--grep="+q, "-i")
+	}
+	if author != "" {
+		args = append(args, "--author="+author)
+	}
+	if file != "" {
+		args = append(args, "--", file)
+	}
+
+	out, err := RunGitCommand(args...)
+	if err != nil {
+		return []CommitInfo{}, err
+	}
+
+	commits := []CommitInfo{}
+	lines := strings.Split(out, "\n")
+	for _, line := range lines {
+		line = strings.TrimSpace(line)
+		if line == "" {
+			continue
+		}
+		parts := strings.SplitN(line, "|", 6)
+		if len(parts) < 6 {
+			continue
+		}
+		commits = append(commits, CommitInfo{
+			Hash:     parts[0],
+			Author:   parts[1],
+			Email:    parts[2],
+			Date:     parts[3],
+			Relative: parts[4],
+			Summary:  parts[5],
+		})
+	}
+	return commits, nil
+}
+
+func GetLineHistory(path string, startLine, endLine int) ([]CommitInfo, error) {
+	lArg := fmt.Sprintf("-L%d,%d:%s", startLine, endLine, path)
+	out, err := RunGitCommand("log", "--no-patch", "--format=%H|%an|%ae|%ad|%ar|%s", lArg)
+	if err != nil {
+		return []CommitInfo{}, err
+	}
+
+	commits := []CommitInfo{}
+	lines := strings.Split(out, "\n")
+	for _, line := range lines {
+		line = strings.TrimSpace(line)
+		if line == "" {
+			continue
+		}
+		parts := strings.SplitN(line, "|", 6)
+		if len(parts) < 6 {
+			continue
+		}
+		commits = append(commits, CommitInfo{
+			Hash:     parts[0],
+			Author:   parts[1],
+			Email:    parts[2],
+			Date:     parts[3],
+			Relative: parts[4],
+			Summary:  parts[5],
+		})
+	}
+	return commits, nil
+}
+
+func GetCommitGraph() (string, error) {
+	return RunGitCommand("log", "--graph", "--oneline", "--all", "--decorate", "-n", "80")
+}
+
+func BlameAtCommit(path, commit string) ([]BlameLine, error) {
+	blameOut, err := RunGitCommand("blame", "--porcelain", commit, "--", path)
+	if err != nil {
+		return []BlameLine{}, err
+	}
+
+	var blameLines []BlameLine = []BlameLine{}
+	lines := strings.Split(blameOut, "\n")
+
+	commits := make(map[string]map[string]string)
+	var currentCommit string
+	var finalLineNum int
+
+	for i := 0; i < len(lines); i++ {
+		line := lines[i]
+		if line == "" {
+			continue
+		}
+
+		if strings.HasPrefix(line, "\t") {
+			attr := commits[currentCommit]
+			blameLines = append(blameLines, BlameLine{
+				Line:    finalLineNum,
+				Commit:  currentCommit,
+				Author:  attr["author"],
+				Date:    attr["date"],
+				Summary: attr["summary"],
+			})
+			continue
+		}
+
+		parts := strings.SplitN(line, " ", 2)
+		if len(parts) < 2 {
+			continue
+		}
+		key := parts[0]
+		val := parts[1]
+
+		if len(key) == 40 {
+			currentCommit = key
+			headerParts := strings.Split(val, " ")
+			if len(headerParts) >= 2 {
+				fmt.Sscanf(headerParts[1], "%d", &finalLineNum)
+			}
+			if _, exists := commits[currentCommit]; !exists {
+				commits[currentCommit] = make(map[string]string)
+			}
+			continue
+		}
+
+		if currentCommit != "" {
+			if key == "author" {
+				commits[currentCommit]["author"] = val
+			} else if key == "author-time" {
+				var sec int64
+				fmt.Sscanf(val, "%d", &sec)
+				t := time.Unix(sec, 0)
+				commits[currentCommit]["date"] = t.Format("2006-01-02")
+			} else if key == "summary" {
+				commits[currentCommit]["summary"] = val
+			}
+		}
+	}
+
+	return blameLines, nil
+}
+
+func CompareRefs(ref1, ref2 string) ([]GitChange, error) {
+	out, err := RunGitCommand("diff", "--name-status", ref1+"..."+ref2)
+	if err != nil {
+		return []GitChange{}, err
+	}
+
+	changes := []GitChange{}
+	lines := strings.Split(out, "\n")
+	for _, line := range lines {
+		line = strings.TrimSpace(line)
+		if line == "" {
+			continue
+		}
+		parts := strings.SplitN(line, "\t", 2)
+		if len(parts) < 2 {
+			continue
+		}
+		changes = append(changes, GitChange{
+			Status: parts[0],
+			Path:   parts[1],
+		})
+	}
+	return changes, nil
+}
+
+func GetDiffStat(ref1, ref2 string) (string, error) {
+	return RunGitCommand("diff", "--stat", ref1+"..."+ref2)
+}
+
 

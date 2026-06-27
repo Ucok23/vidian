@@ -18,9 +18,24 @@
   let diffContainer = $state(null);
   let diffEditor = null;
 
-  // Blame state
+  // Blame / heatmap / lens state
   let currentBlame = $state([]);
   let blameDecorations = [];
+  let heatmapDecorations = [];
+  let showAllBlame = $state(false);
+  let showHeatmap = $state(false);
+  let showCodeLens = $state(false);
+  let blamePopup = $state(null);
+  let blamePopupDetail = $state(null);
+  let currentHoverLine = -1;
+  const commitDetailsCache = {};
+
+  // Selection / line history state
+  let hasSelection = $state(false);
+  let selectionStart = $state(1);
+  let selectionEnd = $state(1);
+  let loadingLineHistory = $state(false);
+  let loadingPrevRev = $state(false);
 
   const isMarkdown = $derived(store.activeFile?.name && store.activeFile.name.toLowerCase().endsWith('.md'));
 
@@ -161,13 +176,13 @@
     });
   });
 
-  // Watch active file changes to load blame data
+  // Load blame data when active file changes
   $effect(() => {
     const file = store.activeFile;
     currentBlame = [];
+    store.currentLineBlame = null;
     if (editor && blameDecorations.length > 0) {
-      editor.deltaDecorations(blameDecorations, []);
-      blameDecorations = [];
+      blameDecorations = editor.deltaDecorations(blameDecorations, []);
     }
 
     if (file && !file.isBinary && !file.isImage && !file.isVideo && !file.isAudio && !file.isCSV && !file.isSQLite && store.git.isGit) {
@@ -175,20 +190,120 @@
         .then(res => res.json())
         .then(data => {
           currentBlame = data;
-          updateBlameDecoration();
+          window._vidianBlameLens = data;
+          window._vidianFireBlameLens?.();
         })
         .catch(err => console.error("Failed to load blame info", err));
     }
   });
 
+  // Apply decorations when blame data or toggle changes
+  $effect(() => {
+    if (!editor || currentBlame.length === 0) return;
+    if (showAllBlame) {
+      applyAllBlameDecorations();
+    } else {
+      updateBlameDecoration();
+    }
+  });
+
+  // Heatmap effect
+  $effect(() => {
+    if (!editor) return;
+    if (showHeatmap && currentBlame.length > 0) {
+      applyHeatmapDecorations();
+    } else {
+      heatmapDecorations = editor.deltaDecorations(heatmapDecorations, []);
+    }
+  });
+
+  // Code lens effect
+  $effect(() => {
+    if (!editor) return;
+    editor.updateOptions({ codeLens: showCodeLens });
+    if (showCodeLens) {
+      window._vidianBlameLens = currentBlame;
+      window._vidianFireBlameLens?.();
+    }
+  });
+
+  function heatClass(dateStr) {
+    const days = Math.floor((Date.now() - new Date(dateStr).getTime()) / 86400000);
+    if (days <= 7)   return 'heat-hot';
+    if (days <= 30)  return 'heat-warm';
+    if (days <= 90)  return 'heat-mild';
+    if (days <= 365) return 'heat-cool';
+    return 'heat-cold';
+  }
+
+  function applyHeatmapDecorations() {
+    if (!editor || currentBlame.length === 0) return;
+    const decorations = currentBlame.map(b => ({
+      range: new monaco.Range(b.line, 1, b.line, 1),
+      options: { linesDecorationsClassName: heatClass(b.date) }
+    }));
+    heatmapDecorations = editor.deltaDecorations(heatmapDecorations, decorations);
+  }
+
+  async function viewPreviousRevision() {
+    if (!store.activeFile || loadingPrevRev) return;
+    loadingPrevRev = true;
+    try {
+      const res = await fetch(`/api/git/log?path=${encodeURIComponent(store.activeFile.path)}`);
+      const history = await res.json();
+      if (history.length < 2) { loadingPrevRev = false; return; }
+      const name = store.activeFile.path.split('/').pop();
+      await store.openDiff(store.activeFile.path, history[1].hash, history[0].hash, `${name} ← prev revision`);
+    } catch (e) { console.error(e); }
+    loadingPrevRev = false;
+  }
+
+  async function viewLineHistory() {
+    if (!store.activeFile || !hasSelection || loadingLineHistory) return;
+    loadingLineHistory = true;
+    try {
+      const path = store.activeFile.path;
+      const res = await fetch(`/api/git/line-history?path=${encodeURIComponent(path)}&start=${selectionStart}&end=${selectionEnd}`);
+      const commits = await res.json();
+      store.lineHistory = { path, start: selectionStart, end: selectionEnd, commits };
+      store.sidebarTab = 'git';
+    } catch (e) { console.error(e); }
+    loadingLineHistory = false;
+  }
+
+  function applyAllBlameDecorations() {
+    if (!editor || currentBlame.length === 0) return;
+    const model = editor.getModel();
+    if (!model) return;
+
+    const decorations = currentBlame.map(record => {
+      const lineContent = model.getLineContent(record.line);
+      const endColumn = lineContent.length + 1;
+      const author = record.author.length > 14 ? record.author.slice(0, 13) + '…' : record.author.padEnd(14);
+      const summary = record.summary.length > 55 ? record.summary.slice(0, 54) + '…' : record.summary;
+      return {
+        range: new monaco.Range(record.line, endColumn, record.line, endColumn),
+        options: {
+          after: {
+            content: `    ${author}  ${record.date}  •  ${summary}`,
+            inlineClassName: 'monaco-git-blame-inline'
+          }
+        }
+      };
+    });
+
+    blameDecorations = editor.deltaDecorations(blameDecorations, decorations);
+  }
+
   function updateBlameDecoration() {
-    if (!editor || !store.activeFile || currentBlame.length === 0) return;
+    if (showAllBlame || !editor || !store.activeFile || currentBlame.length === 0) return;
 
     const position = editor.getPosition();
     if (!position) return;
 
     const line = position.lineNumber;
     const record = currentBlame.find(r => r.line === line);
+
     if (!record) {
       blameDecorations = editor.deltaDecorations(blameDecorations, []);
       return;
@@ -265,16 +380,83 @@
       };
     }
 
-    // Save to window for global access (e.g., revealLine from search)
     window.editorInstance = editor;
 
-    // Listen to cursor position changes
+    // Code lens provider (registered once globally)
+    if (!window._vidianCodeLensRegistered) {
+      window._vidianCodeLensRegistered = true;
+      window._vidianBlameLens = [];
+      window._vidianBlameLensListeners = [];
+      window._vidianFireBlameLens = () => window._vidianBlameLensListeners.forEach(fn => fn());
+      monaco.languages.registerCodeLensProvider('*', {
+        onDidChangeCodeLenses: listener => {
+          window._vidianBlameLensListeners.push(listener);
+          return { dispose: () => { window._vidianBlameLensListeners = window._vidianBlameLensListeners.filter(l => l !== listener); } };
+        },
+        provideCodeLenses(model) {
+          const blame = window._vidianBlameLens || [];
+          const lenses = [];
+          let prevCommit = null;
+          for (const b of blame) {
+            if (b.commit !== prevCommit) {
+              lenses.push({
+                range: { startLineNumber: b.line, startColumn: 1, endLineNumber: b.line, endColumn: 1 },
+                id: String(b.line),
+                command: { id: 'vidian.blame.noop', title: `${b.author}  ·  ${b.date}  —  ${b.summary.slice(0, 60)}` }
+              });
+              prevCommit = b.commit;
+            }
+          }
+          return { lenses, dispose: () => {} };
+        },
+        resolveCodeLens(model, lens) { return lens; }
+      });
+    }
+
     editor.onDidChangeCursorPosition(e => {
-      store.cursorPos = {
-        line: e.position.lineNumber,
-        column: e.position.column
-      };
+      store.cursorPos = { line: e.position.lineNumber, column: e.position.column };
+      store.currentLineBlame = currentBlame.find(r => r.line === e.position.lineNumber) || null;
       updateBlameDecoration();
+    });
+
+    editor.onDidChangeCursorSelection(e => {
+      const sel = e.selection;
+      hasSelection = sel.startLineNumber !== sel.endLineNumber;
+      selectionStart = sel.startLineNumber;
+      selectionEnd = sel.endLineNumber;
+    });
+
+    // Blame hover popup
+    editor.onMouseMove(async (e) => {
+      if (!showAllBlame || currentBlame.length === 0) { blamePopup = null; return; }
+      const line = e.target?.position?.lineNumber;
+      if (!line) { blamePopup = null; return; }
+      const record = currentBlame.find(r => r.line === line);
+      if (!record) { blamePopup = null; return; }
+
+      const ev = e.event.browserEvent;
+      const x = Math.min(ev.clientX + 18, window.innerWidth - 360);
+      const y = Math.min(ev.clientY + 18, window.innerHeight - 130);
+      currentHoverLine = line;
+      blamePopup = { x, y, record };
+
+      if (!commitDetailsCache[record.commit]) {
+        try {
+          const res = await fetch(`/api/git/commit?hash=${record.commit.slice(0, 8)}`);
+          if (res.ok && currentHoverLine === line) {
+            commitDetailsCache[record.commit] = await res.json();
+            blamePopupDetail = commitDetailsCache[record.commit];
+          }
+        } catch (_) {}
+      } else {
+        blamePopupDetail = commitDetailsCache[record.commit];
+      }
+    });
+
+    editor.onMouseLeave(() => {
+      currentHoverLine = -1;
+      blamePopup = null;
+      blamePopupDetail = null;
     });
 
     // Register LSP providers
@@ -429,7 +611,7 @@
 
   {#if store.activePath && !store.activeFile?.isBinary && !store.activeFile?.isImage && !store.activeFile?.isVideo && !store.activeFile?.isAudio && !store.activeFile?.isCSV && !store.activeFile?.isSQLite && !store.activeFile?.isCommit && isMarkdown}
     <!-- Floating action button: toggle split raw view -->
-    <button 
+    <button
       class="preview-toggle-btn"
       class:active={!showPreview}
       onclick={() => showPreview = !showPreview}
@@ -438,6 +620,61 @@
       <Icon name={showPreview ? "split" : "close"} size={14} color="#ffffff" />
       <span>{showPreview ? "View Raw" : "Close Raw"}</span>
     </button>
+  {/if}
+
+  {#if store.activePath && !store.activeFile?.isBinary && !store.activeFile?.isImage && !store.activeFile?.isVideo && !store.activeFile?.isAudio && !store.activeFile?.isCSV && !store.activeFile?.isSQLite && !store.activeFile?.isCommit && !store.activeDiff}
+    <div class="editor-actions">
+      {#if store.git.isGit}
+        <button
+          class:active={showAllBlame}
+          onclick={() => { showAllBlame = !showAllBlame; if (!showAllBlame) { blameDecorations = editor?.deltaDecorations(blameDecorations, []); updateBlameDecoration(); } }}
+          title="Toggle inline blame annotations"
+        ><Icon name="gitCommit" size={11} /> Blame</button>
+
+        <button
+          class:active={showHeatmap}
+          onclick={() => showHeatmap = !showHeatmap}
+          title="Toggle gutter heatmap (line age)"
+        >Heatmap</button>
+
+        <button
+          class:active={showCodeLens}
+          onclick={() => showCodeLens = !showCodeLens}
+          title="Toggle code lens (commit info above blocks)"
+        >Lens</button>
+
+        <div class="act-sep"></div>
+
+        <button
+          class:loading={loadingPrevRev}
+          onclick={viewPreviousRevision}
+          title="Diff this file vs its previous revision"
+        >Prev Rev</button>
+      {/if}
+
+      {#if hasSelection && store.git.isGit}
+        <div class="act-sep"></div>
+        <button
+          class:loading={loadingLineHistory}
+          onclick={viewLineHistory}
+          title="Show git history for selected lines"
+        >Line History</button>
+      {/if}
+    </div>
+  {/if}
+
+  {#if blamePopup}
+    <div class="blame-popup" style="left: {blamePopup.x}px; top: {blamePopup.y}px">
+      <div class="bp-header">
+        <span class="bp-hash">{blamePopup.record.commit.slice(0, 8)}</span>
+        <span class="bp-date">{blamePopup.record.date}</span>
+      </div>
+      <div class="bp-author">{blamePopup.record.author}</div>
+      <div class="bp-message">{blamePopup.record.summary}</div>
+      {#if blamePopupDetail?.files?.length}
+        <div class="bp-files">{blamePopupDetail.files.length} file{blamePopupDetail.files.length !== 1 ? 's' : ''} changed</div>
+      {/if}
+    </div>
   {/if}
 </div>
 
@@ -828,5 +1065,122 @@
 
   .preview-toggle-btn.active:hover {
     background: #dc2626;
+  }
+
+  /* Editor action toolbar */
+  .editor-actions {
+    position: absolute;
+    top: 8px;
+    right: 130px;
+    z-index: 50;
+    display: flex;
+    align-items: center;
+    gap: 1px;
+    background: rgba(18, 18, 22, 0.92);
+    border: 1px solid rgba(255, 255, 255, 0.07);
+    border-radius: 6px;
+    padding: 2px 3px;
+    backdrop-filter: blur(6px);
+    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.35);
+  }
+
+  .editor-actions button {
+    background: none;
+    border: none;
+    color: #8e8e93;
+    cursor: pointer;
+    padding: 3px 7px;
+    border-radius: 4px;
+    font-size: 11px;
+    font-weight: 500;
+    display: flex;
+    align-items: center;
+    gap: 4px;
+    transition: background-color 0.12s, color 0.12s;
+    white-space: nowrap;
+  }
+
+  .editor-actions button:hover {
+    background: rgba(255, 255, 255, 0.07);
+    color: #e3e3e6;
+  }
+
+  .editor-actions button.active {
+    background: rgba(99, 102, 241, 0.18);
+    color: #818cf8;
+  }
+
+  .editor-actions button.loading {
+    opacity: 0.5;
+    pointer-events: none;
+  }
+
+  .act-sep {
+    width: 1px;
+    height: 14px;
+    background: rgba(255, 255, 255, 0.1);
+    margin: 0 2px;
+  }
+
+  /* Gutter heatmap classes */
+  :global(.heat-hot)  { background: #ef4444; width: 3px; margin-left: 1px; border-radius: 2px; }
+  :global(.heat-warm) { background: #f97316; width: 3px; margin-left: 1px; border-radius: 2px; }
+  :global(.heat-mild) { background: #eab308; width: 3px; margin-left: 1px; border-radius: 2px; }
+  :global(.heat-cool) { background: #3b82f6; width: 3px; margin-left: 1px; border-radius: 2px; }
+  :global(.heat-cold) { background: #6b7280; width: 3px; margin-left: 1px; border-radius: 2px; }
+
+  .blame-popup {
+    position: fixed;
+    z-index: 9999;
+    background: #1e1e2a;
+    border: 1px solid #3a3a50;
+    border-radius: 8px;
+    padding: 10px 14px;
+    min-width: 280px;
+    max-width: 380px;
+    box-shadow: 0 8px 24px rgba(0, 0, 0, 0.45);
+    pointer-events: none;
+    font-size: 12px;
+    line-height: 1.5;
+  }
+
+  .bp-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 5px;
+  }
+
+  .bp-hash {
+    font-family: monospace;
+    font-size: 11px;
+    color: #818cf8;
+    background: rgba(99, 102, 241, 0.12);
+    padding: 1px 6px;
+    border-radius: 4px;
+  }
+
+  .bp-date {
+    font-size: 11px;
+    color: #8e8e93;
+  }
+
+  .bp-author {
+    font-weight: 600;
+    color: #e3e3e6;
+    margin-bottom: 3px;
+  }
+
+  .bp-message {
+    color: #c4c4cc;
+    font-size: 12px;
+  }
+
+  .bp-files {
+    margin-top: 6px;
+    padding-top: 6px;
+    border-top: 1px solid #2d2d40;
+    font-size: 11px;
+    color: #8e8e93;
   }
 </style>

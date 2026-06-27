@@ -12,6 +12,9 @@ class AppStore {
   isSearching = $state(false);
   cursorPos = $state({ line: 1, column: 1 });
   activeLanguage = $state('Plain Text');
+  currentLineBlame = $state(null);
+  lineHistory = $state(null);    // { path, start, end, commits: [] }
+  compareResult = $state(null);  // { ref1, ref2, files: [], stat: '' }
   
   // File tree expanded paths
   expandedPaths = $state(new Set());

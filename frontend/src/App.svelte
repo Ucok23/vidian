@@ -118,6 +118,14 @@
     return colors[ext] || '#9ca3af';
   }
 
+  // Open git sidebar when line history is triggered from editor
+  $effect(() => {
+    if (store.lineHistory) {
+      store.sidebarTab = 'git';
+      sidebarVisible = true;
+    }
+  });
+
   onMount(async () => {
     await store.init();
     window.addEventListener('keydown', handleKeyDown);
@@ -304,6 +312,12 @@
       </div>
 
       <div class="status-right">
+        {#if store.currentLineBlame && store.git.isGit && store.activePath && !store.activeFile?.isBinary && !store.activeFile?.isImage}
+          <div class="status-item status-blame" title="{store.currentLineBlame.commit.slice(0, 8)} — {store.currentLineBlame.summary}">
+            <Icon name="gitCommit" size={11} />
+            <span>{store.currentLineBlame.author}, {store.currentLineBlame.date} • {store.currentLineBlame.summary.length > 40 ? store.currentLineBlame.summary.slice(0, 39) + '…' : store.currentLineBlame.summary}</span>
+          </div>
+        {/if}
         {#if store.activePath && !store.activeFile?.isBinary && !store.activeFile?.isImage}
           <div class="status-item">
             <span>Ln {store.cursorPos.line}, Col {store.cursorPos.column}</span>
@@ -557,6 +571,16 @@
 
   .text-dimmed {
     color: #5d5d66;
+  }
+
+  .status-blame {
+    max-width: 380px;
+    overflow: hidden;
+    white-space: nowrap;
+    text-overflow: ellipsis;
+    color: #8e8e93;
+    font-size: 11px;
+    opacity: 0.85;
   }
 
   /* Tab Context Menu */

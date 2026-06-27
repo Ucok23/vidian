@@ -68,6 +68,14 @@ func Start(cfg *config.Config, embeddedFiles fs.FS) {
 	http.HandleFunc("/api/git/log", handleGitLog)
 	http.HandleFunc("/api/git/commit/files", handleGitCommitFiles)
 	http.HandleFunc("/api/git/commit", handleGitCommit)
+	http.HandleFunc("/api/git/stashes", handleGitStashes)
+	http.HandleFunc("/api/git/tags", handleGitTags)
+	http.HandleFunc("/api/git/contributors", handleGitContributors)
+	http.HandleFunc("/api/git/search", handleGitSearch)
+	http.HandleFunc("/api/git/line-history", handleGitLineHistory)
+	http.HandleFunc("/api/git/graph", handleGitGraph)
+	http.HandleFunc("/api/git/blame-at", handleGitBlameAt)
+	http.HandleFunc("/api/git/compare", handleGitCompare)
 	http.HandleFunc("/api/sqlite/tables", handleSQLiteTables)
 	http.HandleFunc("/api/sqlite/query", handleSQLiteQuery)
 	http.Handle("/api/lsp", websocket.Handler(lsp.HandleLSP))
@@ -595,6 +603,146 @@ func handleGitCommit(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	json.NewEncoder(w).Encode(details)
+}
+
+func handleGitStashes(w http.ResponseWriter, r *http.Request) {
+	setupCORS(w, r)
+	if r.Method == "OPTIONS" {
+		return
+	}
+	w.Header().Set("Content-Type", "application/json")
+	result, err := git.GetStashes()
+	if err != nil {
+		json.NewEncoder(w).Encode([]git.Stash{})
+		return
+	}
+	json.NewEncoder(w).Encode(result)
+}
+
+func handleGitTags(w http.ResponseWriter, r *http.Request) {
+	setupCORS(w, r)
+	if r.Method == "OPTIONS" {
+		return
+	}
+	w.Header().Set("Content-Type", "application/json")
+	result, err := git.GetTags()
+	if err != nil {
+		json.NewEncoder(w).Encode([]git.Tag{})
+		return
+	}
+	json.NewEncoder(w).Encode(result)
+}
+
+func handleGitContributors(w http.ResponseWriter, r *http.Request) {
+	setupCORS(w, r)
+	if r.Method == "OPTIONS" {
+		return
+	}
+	w.Header().Set("Content-Type", "application/json")
+	result, err := git.GetContributors()
+	if err != nil {
+		json.NewEncoder(w).Encode([]git.Contributor{})
+		return
+	}
+	json.NewEncoder(w).Encode(result)
+}
+
+func handleGitSearch(w http.ResponseWriter, r *http.Request) {
+	setupCORS(w, r)
+	if r.Method == "OPTIONS" {
+		return
+	}
+	w.Header().Set("Content-Type", "application/json")
+	q := r.URL.Query().Get("q")
+	author := r.URL.Query().Get("author")
+	file := r.URL.Query().Get("file")
+	result, err := git.SearchCommits(q, author, file)
+	if err != nil {
+		json.NewEncoder(w).Encode([]git.CommitInfo{})
+		return
+	}
+	json.NewEncoder(w).Encode(result)
+}
+
+func handleGitLineHistory(w http.ResponseWriter, r *http.Request) {
+	setupCORS(w, r)
+	if r.Method == "OPTIONS" {
+		return
+	}
+	w.Header().Set("Content-Type", "application/json")
+	path := r.URL.Query().Get("path")
+	if path == "" {
+		http.Error(w, "Missing path parameter", http.StatusBadRequest)
+		return
+	}
+	start, _ := strconv.Atoi(r.URL.Query().Get("start"))
+	end, _ := strconv.Atoi(r.URL.Query().Get("end"))
+	result, err := git.GetLineHistory(path, start, end)
+	if err != nil {
+		json.NewEncoder(w).Encode([]git.CommitInfo{})
+		return
+	}
+	json.NewEncoder(w).Encode(result)
+}
+
+func handleGitGraph(w http.ResponseWriter, r *http.Request) {
+	setupCORS(w, r)
+	if r.Method == "OPTIONS" {
+		return
+	}
+	w.Header().Set("Content-Type", "text/plain")
+	result, err := git.GetCommitGraph()
+	if err != nil {
+		w.Write([]byte(""))
+		return
+	}
+	w.Write([]byte(result))
+}
+
+func handleGitBlameAt(w http.ResponseWriter, r *http.Request) {
+	setupCORS(w, r)
+	if r.Method == "OPTIONS" {
+		return
+	}
+	w.Header().Set("Content-Type", "application/json")
+	path := r.URL.Query().Get("path")
+	commit := r.URL.Query().Get("commit")
+	if path == "" || commit == "" {
+		http.Error(w, "Missing path or commit parameter", http.StatusBadRequest)
+		return
+	}
+	result, err := git.BlameAtCommit(path, commit)
+	if err != nil {
+		json.NewEncoder(w).Encode([]git.BlameLine{})
+		return
+	}
+	json.NewEncoder(w).Encode(result)
+}
+
+func handleGitCompare(w http.ResponseWriter, r *http.Request) {
+	setupCORS(w, r)
+	if r.Method == "OPTIONS" {
+		return
+	}
+	w.Header().Set("Content-Type", "application/json")
+	ref1 := r.URL.Query().Get("ref1")
+	ref2 := r.URL.Query().Get("ref2")
+	if ref1 == "" || ref2 == "" {
+		http.Error(w, "Missing ref1 or ref2 parameter", http.StatusBadRequest)
+		return
+	}
+	files, err := git.CompareRefs(ref1, ref2)
+	if err != nil {
+		files = []git.GitChange{}
+	}
+	stat, err := git.GetDiffStat(ref1, ref2)
+	if err != nil {
+		stat = ""
+	}
+	json.NewEncoder(w).Encode(map[string]interface{}{
+		"files": files,
+		"stat":  stat,
+	})
 }
 
 var validTableName = regexp.MustCompile(`^[a-zA-Z_][a-zA-Z0-9_]*$`)

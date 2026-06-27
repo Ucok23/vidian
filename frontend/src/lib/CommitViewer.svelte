@@ -5,6 +5,31 @@
   let { commit } = $props();
 
   let copied = $state(false);
+  let parentHash = $state(null);
+  let loadingParent = $state(false);
+
+  async function loadParentCommit() {
+    if (loadingParent || parentHash) return;
+    loadingParent = true;
+    try {
+      const res = await fetch(`/api/git/log?path=`);
+      // Use git show to get parent
+      const pRes = await fetch(`/api/git/commit?hash=${commit.hash}%5E`); // ^
+      if (pRes.ok) {
+        const p = await pRes.json();
+        parentHash = p.hash;
+      }
+    } catch (_) {}
+    loadingParent = false;
+  }
+
+  function openParentCommit() {
+    if (parentHash) store.openCommit(parentHash);
+    else {
+      // Try to open commit^
+      store.openCommit(commit.hash + '^');
+    }
+  }
 
   function copyHash() {
     navigator.clipboard.writeText(commit.hash);
@@ -31,6 +56,14 @@
       <h2>{commit.subject}</h2>
     </div>
     
+    <div class="commit-actions-row">
+      <!-- svelte-ignore a11y_click_events_have_key_events -->
+      <!-- svelte-ignore a11y_no_static_element_interactions -->
+      <div class="commit-action-btn" onclick={openParentCommit} title="Open parent commit">
+        ← Parent Commit
+      </div>
+    </div>
+
     <div class="commit-meta-list">
       <div class="meta-item">
         <span class="meta-label">Commit:</span>
@@ -72,25 +105,22 @@
         {#each commit.files as file}
           <!-- svelte-ignore a11y_click_events_have_key_events -->
           <!-- svelte-ignore a11y_no_static_element_interactions -->
-          <div 
-            class="commit-file-item"
-            onclick={() => store.openDiff(
-              file.path, 
-              `${commit.hash}^`, 
-              commit.hash, 
-              `${file.path.split('/').pop()} (${commit.hash.slice(0, 7)})`
-            )}
-            title="Click to view file changes"
-          >
+          <div class="commit-file-item" title={file.path}>
             <div class="file-info-group">
               <span class="file-status-badge" style="background-color: {getStatusColor(file.status)}15; color: {getStatusColor(file.status)}">
                 {file.status}
               </span>
               <span class="file-path">{file.path}</span>
             </div>
-            <div class="file-action-indicator">
-              <Icon name="split" size={14} color="#8e8e93" />
-              <span class="action-text">View Diff</span>
+            <div class="file-actions">
+              {#if file.status !== 'D'}
+                <!-- svelte-ignore a11y_click_events_have_key_events -->
+                <!-- svelte-ignore a11y_no_static_element_interactions -->
+                <span class="file-action-btn" onclick={() => store.openFile(file.path)} title="Open file">Open</span>
+              {/if}
+              <!-- svelte-ignore a11y_click_events_have_key_events -->
+              <!-- svelte-ignore a11y_no_static_element_interactions -->
+              <span class="file-action-btn primary" onclick={() => store.openDiff(file.path, `${commit.hash}^`, commit.hash, `${file.path.split('/').pop()} (${commit.hash.slice(0, 7)})`)} title="View diff">Diff</span>
             </div>
           </div>
         {/each}
@@ -120,6 +150,32 @@
     border-radius: 12px;
     padding: 2rem;
     box-shadow: 0 4px 20px rgba(0, 0, 0, 0.15);
+  }
+
+  .commit-actions-row {
+    display: flex;
+    gap: 8px;
+    margin-bottom: 1.5rem;
+  }
+
+  .commit-action-btn {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    background: rgba(255, 255, 255, 0.04);
+    border: 1px solid rgba(255, 255, 255, 0.08);
+    border-radius: 5px;
+    color: #a1a1aa;
+    padding: 4px 10px;
+    font-size: 11px;
+    cursor: pointer;
+    transition: background 0.15s, color 0.15s;
+    user-select: none;
+  }
+  .commit-action-btn:hover {
+    background: rgba(99, 102, 241, 0.12);
+    border-color: rgba(99, 102, 241, 0.25);
+    color: #ffffff;
   }
 
   .commit-title-row {
@@ -309,19 +365,27 @@
     color: #e3e3e6;
   }
 
-  .file-action-indicator {
+  .file-actions {
     display: flex;
-    align-items: center;
-    gap: 6px;
-    font-size: 11px;
-    color: #8e8e93;
+    gap: 4px;
     opacity: 0;
     transition: opacity 0.15s;
   }
+  .commit-file-item:hover .file-actions { opacity: 1; }
 
-  .commit-file-item:hover .file-action-indicator {
-    opacity: 1;
+  .file-action-btn {
+    font-size: 10px;
+    padding: 2px 7px;
+    border-radius: 3px;
+    background: rgba(255,255,255,0.06);
+    color: #8e8e93;
+    cursor: pointer;
+    user-select: none;
+    transition: background 0.12s, color 0.12s;
   }
+  .file-action-btn:hover { background: rgba(255,255,255,0.12); color: #e3e3e6; }
+  .file-action-btn.primary { background: rgba(99,102,241,0.15); color: #818cf8; }
+  .file-action-btn.primary:hover { background: rgba(99,102,241,0.28); color: #a5b4fc; }
 
   .no-files-text {
     color: #8e8e93;

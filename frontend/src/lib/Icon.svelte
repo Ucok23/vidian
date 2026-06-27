@@ -16,7 +16,8 @@
     info: `<circle cx="12" cy="12" r="10"/><path d="M12 16v-4"/><path d="M12 8h.01"/>`,
     eye: `<path d="M2 12s3-7 10-7 10 7 10 7-3 7-10 7-10-7-10-7Z"/><circle cx="12" cy="12" r="3"/>`,
     split: `<rect width="18" height="18" x="3" y="3" rx="2"/><path d="M12 3v18"/>`,
-    gitCommit: `<path d="M12 15a3 3 0 1 0 0-6 3 3 0 0 0 0 6Z"/><path d="M3 12h6"/><path d="M15 12h6"/>`
+    gitCommit: `<path d="M12 15a3 3 0 1 0 0-6 3 3 0 0 0 0 6Z"/><path d="M3 12h6"/><path d="M15 12h6"/>`,
+    clock: `<circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/>`
   };
 
   // Adjust folderOpen path to look correct as outline
