@@ -1,8 +1,10 @@
-module.exports = async function({ page, baseUrl, screenshot, log }) {
+const { test } = require('../fixtures');
+
+test('01-file-explorer', async ({ page, baseUrl, snap, log }) => {
   await page.goto(baseUrl, { waitUntil: 'networkidle' });
   await page.waitForTimeout(1500);
 
-  await screenshot('01-initial-workspace');
+  await snap('01-initial-workspace');
   log('Workspace loaded with explorer visible');
 
   // Expand a directory
@@ -10,7 +12,7 @@ module.exports = async function({ page, baseUrl, screenshot, log }) {
   if (dirs.length > 0) {
     await dirs[0].click();
     await page.waitForTimeout(500);
-    await screenshot('02-after-expand-dir');
+    await snap('02-after-expand-dir');
     log(`Expanded first directory (${dirs.length} dirs available)`);
   }
 
@@ -29,7 +31,7 @@ module.exports = async function({ page, baseUrl, screenshot, log }) {
     }
   }
 
-  await screenshot('03-after-open-files');
+  await snap('03-after-open-files');
   log(`Opened ${opened} files — tabs should be visible`);
 
   // Verify tabs exist
@@ -44,11 +46,11 @@ module.exports = async function({ page, baseUrl, screenshot, log }) {
   if (tabs.length >= 2) {
     await tabs[0].click();
     await page.waitForTimeout(400);
-    await screenshot('04-switched-to-first-tab');
+    await snap('04-switched-to-first-tab');
 
     await tabs[tabs.length - 1].click();
     await page.waitForTimeout(400);
-    await screenshot('05-switched-to-last-tab');
+    await snap('05-switched-to-last-tab');
     log('Tab switching works');
   }
-};
+});

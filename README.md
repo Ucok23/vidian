@@ -166,10 +166,10 @@ go run ./cmd/vidian/main.go -dir . -dev -port 8080
 ### Tests
 
 ```bash
-./run-tests.sh
+make visual-test
 ```
 
-Builds frontend, compiles backend, starts the server, and runs headless Chromium (Puppeteer) end-to-end tests across the file explorer, Monaco editor, Git panel, commit viewer, and diff editor.
+Builds the frontend, compiles the backend, starts the server, and runs the Playwright (`@playwright/test`) visual suite inside Docker across the file explorer, Monaco editor, Git panel, commit viewer, diff editor, and the GitLens features. Each run writes a timestamped folder under `tests/visual/results/` containing a custom dark-themed `index.html`, Playwright's native HTML report, and per-test traces, HD video, and screenshots.
 
 ---
 

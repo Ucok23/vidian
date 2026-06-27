@@ -1,7 +1,7 @@
 {
   "name": "vidian-visual-tests",
   "private": true,
-  "dependencies": {
-    "playwright": "1.53.0"
+  "devDependencies": {
+    "@playwright/test": "1.53.0"
   }
 }

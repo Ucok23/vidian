@@ -1,14 +1,16 @@
-module.exports = async function({ page, baseUrl, screenshot, log }) {
+const { test } = require('../fixtures');
+
+test('04-search', async ({ page, baseUrl, snap, log }) => {
   await page.goto(baseUrl, { waitUntil: 'networkidle' });
   await page.waitForTimeout(1500);
 
-  await screenshot('01-before-search');
+  await snap('01-before-search');
 
   // Click Search in activity bar
   const searchBtn = page.locator('.activity-btn[title="Search (Ctrl+Shift+F)"]');
   await searchBtn.click();
   await page.waitForTimeout(500);
-  await screenshot('02-search-panel-open');
+  await snap('02-search-panel-open');
   log('Search panel opened');
 
   // Type a search query
@@ -16,7 +18,7 @@ module.exports = async function({ page, baseUrl, screenshot, log }) {
   await searchInput.waitFor({ timeout: 5000 });
   await searchInput.fill('func');
   await page.waitForTimeout(2000);
-  await screenshot('03-search-results');
+  await snap('03-search-results');
 
   const resultCount = await page.locator('.match-row').count();
   log(`Search results for "func": ${resultCount}`);
@@ -25,7 +27,7 @@ module.exports = async function({ page, baseUrl, screenshot, log }) {
     // Click first result to navigate to file
     await page.locator('.match-row').first().click();
     await page.waitForTimeout(800);
-    await screenshot('04-after-click-result');
+    await snap('04-after-click-result');
     log('Navigated to first search result');
 
     const tabs = await page.locator('.tabs-bar .tab').count();
@@ -46,10 +48,10 @@ module.exports = async function({ page, baseUrl, screenshot, log }) {
   await page.waitForTimeout(300);
   await input.fill('import');
   await page.waitForTimeout(2000);
-  await screenshot('05-second-search');
+  await snap('05-second-search');
 
   const resultCount2 = await page.locator('.match-row').count();
   log(`Search results for "import": ${resultCount2}`);
 
-  await screenshot('06-final-state');
-};
+  await snap('06-final-state');
+});

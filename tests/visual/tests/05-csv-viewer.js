@@ -1,7 +1,8 @@
 const fs = require('fs');
 const path = require('path');
+const { test } = require('../fixtures');
 
-module.exports = async function({ page, baseUrl, screenshot, log }) {
+test('05-csv-viewer', async ({ page, baseUrl, snap, log }) => {
   // Create a test CSV file in the workspace
   const csvContent = 'Name,Age,City,Role,Salary\nAlice,30,New York,Engineer,120000\nBob,25,San Francisco,Designer,95000\nCharlie,35,"Los Angeles",Manager,140000\nDiana,28,"Chicago, IL",Analyst,85000\nEve,32,Seattle,"Senior Engineer",150000\nFrank,29,Austin,DevOps,110000\nGrace,31,Boston,"Data Scientist",130000';
 
@@ -13,7 +14,7 @@ module.exports = async function({ page, baseUrl, screenshot, log }) {
   await page.goto(baseUrl, { waitUntil: 'networkidle' });
   await page.waitForTimeout(1500);
 
-  await screenshot('01-before-csv');
+  await snap('01-before-csv');
 
   // Navigate to tests > visual > test-data > test.csv
   const folders = ['tests', 'visual', 'test-data'];
@@ -40,7 +41,7 @@ module.exports = async function({ page, baseUrl, screenshot, log }) {
     }
   }
 
-  await screenshot('02-csv-table-view');
+  await snap('02-csv-table-view');
   log('CSV file opened in table view');
 
   // Verify table rendered
@@ -55,5 +56,5 @@ module.exports = async function({ page, baseUrl, screenshot, log }) {
   const info = await page.locator('.csv-info').textContent();
   log(`CSV toolbar info: ${info}`);
 
-  await screenshot('03-csv-final');
-};
+  await snap('03-csv-final');
+});

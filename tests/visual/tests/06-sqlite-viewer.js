@@ -1,8 +1,9 @@
 const { execSync } = require('child_process');
 const fs = require('fs');
 const path = require('path');
+const { test } = require('../fixtures');
 
-module.exports = async function({ page, baseUrl, screenshot, log }) {
+test('06-sqlite-viewer', async ({ page, baseUrl, snap, log }) => {
   // Create a test SQLite database in the workspace
   const dbPath = '/tests/test-data/test.db';
   fs.mkdirSync(path.dirname(dbPath), { recursive: true });
@@ -36,7 +37,7 @@ conn.close()
   await page.goto(baseUrl, { waitUntil: 'networkidle' });
   await page.waitForTimeout(1500);
 
-  await screenshot('01-before-sqlite');
+  await snap('01-before-sqlite');
 
   // Navigate to tests > visual > test-data > test.db
   const folders = ['tests', 'visual', 'test-data'];
@@ -63,7 +64,7 @@ conn.close()
     }
   }
 
-  await screenshot('02-sqlite-first-table');
+  await snap('02-sqlite-first-table');
   log('SQLite database opened');
 
   // Verify table sidebar rendered
@@ -90,7 +91,7 @@ conn.close()
     }
   }
 
-  await screenshot('03-sqlite-products-table');
+  await snap('03-sqlite-products-table');
   log('Switched to products table');
 
   // Click "users" table
@@ -103,8 +104,8 @@ conn.close()
     }
   }
 
-  await screenshot('04-sqlite-users-table');
+  await snap('04-sqlite-users-table');
   log('Switched to users table');
 
-  await screenshot('05-sqlite-final');
-};
+  await snap('05-sqlite-final');
+});

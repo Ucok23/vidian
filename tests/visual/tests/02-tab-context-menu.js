@@ -1,4 +1,6 @@
-module.exports = async function({ page, baseUrl, screenshot, log }) {
+const { test } = require('../fixtures');
+
+test('02-tab-context-menu', async ({ page, baseUrl, snap, log }) => {
   await page.goto(baseUrl, { waitUntil: 'networkidle' });
   await page.waitForTimeout(1500);
 
@@ -15,7 +17,7 @@ module.exports = async function({ page, baseUrl, screenshot, log }) {
     }
   }
 
-  await screenshot('01-before-4-tabs-open');
+  await snap('01-before-4-tabs-open');
   log(`Opened ${opened} tabs`);
 
   // Right-click the second tab to show context menu
@@ -24,7 +26,7 @@ module.exports = async function({ page, baseUrl, screenshot, log }) {
 
   await tabs[1].click({ button: 'right' });
   await page.waitForTimeout(400);
-  await screenshot('02-context-menu-visible');
+  await snap('02-context-menu-visible');
 
   // Verify menu items
   const items = await page.locator('.context-menu-item').allTextContents();
@@ -42,7 +44,7 @@ module.exports = async function({ page, baseUrl, screenshot, log }) {
   await page.waitForTimeout(300);
   await page.locator('.context-menu-item', { hasText: 'Close to the Right' }).click();
   await page.waitForTimeout(400);
-  await screenshot('03-after-close-to-right');
+  await snap('03-after-close-to-right');
 
   const remaining = await page.locator('.tabs-bar .tab').count();
   log(`Tabs after "Close to the Right": ${remaining} (expected 2)`);
@@ -54,7 +56,7 @@ module.exports = async function({ page, baseUrl, screenshot, log }) {
   await page.waitForTimeout(300);
   await page.locator('.context-menu-item', { hasText: 'Close Others' }).click();
   await page.waitForTimeout(400);
-  await screenshot('04-after-close-others');
+  await snap('04-after-close-others');
 
   const afterOthers = await page.locator('.tabs-bar .tab').count();
   log(`Tabs after "Close Others": ${afterOthers} (expected 1)`);
@@ -66,9 +68,9 @@ module.exports = async function({ page, baseUrl, screenshot, log }) {
   await page.waitForTimeout(300);
   await page.locator('.context-menu-item', { hasText: 'Close All' }).click();
   await page.waitForTimeout(400);
-  await screenshot('05-after-close-all');
+  await snap('05-after-close-all');
 
   const afterAll = await page.locator('.tabs-bar .tab').count();
   log(`Tabs after "Close All": ${afterAll} (expected 0)`);
   if (afterAll !== 0) throw new Error(`Expected 0 tabs after close-all, got ${afterAll}`);
-};
+});

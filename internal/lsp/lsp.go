@@ -2,6 +2,7 @@ package lsp
 
 import (
 	"bufio"
+	"errors"
 	"fmt"
 	"io"
 	"log"
@@ -14,6 +15,22 @@ import (
 	"golang.org/x/net/websocket"
 	"github.com/Ucok23/vidian/internal/config"
 )
+
+// isCleanClose reports whether err is an expected stream-close that happens on
+// graceful shutdown or client disconnect (EOF, or a killed LSP process closing
+// its pipes), as opposed to a real failure worth logging.
+func isCleanClose(err error) bool {
+	return errors.Is(err, io.EOF) || errors.Is(err, os.ErrClosed)
+}
+
+func sendLSPError(ws *websocket.Conn, msg string) {
+	body := fmt.Sprintf(
+		`{"jsonrpc":"2.0","method":"window/showMessage","params":{"type":1,"message":%q}}`,
+		msg,
+	)
+	framed := fmt.Sprintf("Content-Length: %d\r\n\r\n%s", len(body), body)
+	_ = websocket.Message.Send(ws, framed)
+}
 
 func HandleLSP(ws *websocket.Conn) {
 	defer ws.Close()
@@ -28,7 +45,7 @@ func HandleLSP(ws *websocket.Conn) {
 	case "go":
 		goplsPath, err := exec.LookPath("gopls")
 		if err != nil {
-			goplsPath = "/home/ucok/.local/share/mise/installs/go/1.26.1/bin/gopls"
+			goplsPath = filepath.Join(os.Getenv("HOME"), "go", "bin", "gopls")
 		}
 		cmdPath = goplsPath
 		cmdArgs = []string{"-mode", "stdio"}
@@ -57,7 +74,20 @@ func HandleLSP(ws *websocket.Conn) {
 		cmdArgs = []string{}
 	default:
 		log.Printf("Unsupported LSP language: %s", lang)
+		sendLSPError(ws, fmt.Sprintf("No language server configured for %q.", lang))
 		return
+	}
+
+	// For non-npx paths, verify the binary exists before trying to launch it.
+	if cmdPath != "npx" {
+		if _, err := exec.LookPath(cmdPath); err != nil {
+			if _, err2 := os.Stat(cmdPath); err2 != nil {
+				msg := fmt.Sprintf("Language server for %q not found (%s). Please install it and make sure it is on your PATH.", lang, cmdPath)
+				log.Printf("LSP binary not found: %s", cmdPath)
+				sendLSPError(ws, msg)
+				return
+			}
+		}
 	}
 
 	cmd := exec.Command(cmdPath, cmdArgs...)
@@ -66,6 +96,7 @@ func HandleLSP(ws *websocket.Conn) {
 	stdin, err := cmd.StdinPipe()
 	if err != nil {
 		log.Printf("LSP StdinPipe failed: %v", err)
+		sendLSPError(ws, fmt.Sprintf("Failed to start language server for %q: %v", lang, err))
 		return
 	}
 	defer stdin.Close()
@@ -73,12 +104,14 @@ func HandleLSP(ws *websocket.Conn) {
 	stdout, err := cmd.StdoutPipe()
 	if err != nil {
 		log.Printf("LSP StdoutPipe failed: %v", err)
+		sendLSPError(ws, fmt.Sprintf("Failed to start language server for %q: %v", lang, err))
 		return
 	}
 	defer stdout.Close()
 
 	if err := cmd.Start(); err != nil {
 		log.Printf("LSP process start failed (%s): %v", cmdPath, err)
+		sendLSPError(ws, fmt.Sprintf("Language server for %q failed to start: %v", lang, err))
 		return
 	}
 	defer func() {
@@ -104,7 +137,9 @@ func HandleLSP(ws *websocket.Conn) {
 			for {
 				line, err := reader.ReadString('\n')
 				if err != nil {
-					log.Printf("LSP reader error: %v", err)
+					if !isCleanClose(err) {
+						log.Printf("LSP reader error: %v", err)
+					}
 					return
 				}
 				line = strings.TrimSpace(line)
@@ -142,7 +177,9 @@ func HandleLSP(ws *websocket.Conn) {
 			var msg string
 			err := websocket.Message.Receive(ws, &msg)
 			if err != nil {
-				log.Printf("LSP ws receive failed: %v", err)
+				if !isCleanClose(err) {
+					log.Printf("LSP ws receive failed: %v", err)
+				}
 				return
 			}
 

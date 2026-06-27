@@ -55,14 +55,17 @@ echo ""
 echo "→ Running visual tests in Docker..."
 docker run --rm \
   --network host \
+  --user "$(id -u):$(id -g)" \
+  -e HOME=/tmp/pw \
   -v "$SCRIPT_DIR:/tests" \
   -v "$RESULTS_DIR:/output" \
-  -w /tmp/pw \
+  -w /tmp \
   "$DOCKER_IMAGE" \
   bash -c "
+    mkdir -p /tmp/pw && cd /tmp/pw
     npm init -y --silent 2>/dev/null
-    npm install playwright@1.53.0 --silent 2>/dev/null
-    NODE_PATH=/tmp/pw/node_modules node /tests/framework.js
+    PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD=1 npm install @playwright/test@1.53.0 --silent 2>/dev/null
+    RESULTS_DIR=/output NODE_PATH=/tmp/pw/node_modules /tmp/pw/node_modules/.bin/playwright test --config /tests/playwright.config.js
   "
 
 EXIT_CODE=$?

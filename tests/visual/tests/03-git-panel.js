@@ -1,8 +1,10 @@
-module.exports = async function({ page, baseUrl, screenshot, log }) {
+const { test } = require('../fixtures');
+
+test('03-git-panel', async ({ page, baseUrl, snap, log }) => {
   await page.goto(baseUrl, { waitUntil: 'networkidle' });
   await page.waitForTimeout(1500);
 
-  await screenshot('01-before-git-panel');
+  await snap('01-before-git-panel');
 
   // Click Source Control in activity bar
   const gitBtn = page.locator('.activity-btn[title="Source Control"]');
@@ -13,7 +15,7 @@ module.exports = async function({ page, baseUrl, screenshot, log }) {
 
   await gitBtn.click();
   await page.waitForTimeout(800);
-  await screenshot('02-git-panel-open');
+  await snap('02-git-panel-open');
   log('Git panel opened');
 
   // Wait for commits to load
@@ -22,12 +24,12 @@ module.exports = async function({ page, baseUrl, screenshot, log }) {
   const commitCount = await commits.count();
   log(`Commits visible: ${commitCount}`);
 
-  await screenshot('03-commit-list');
+  await snap('03-commit-list');
 
   // Click first commit to see details
   await commits.first().click();
   await page.waitForTimeout(1000);
-  await screenshot('04-commit-details');
+  await snap('04-commit-details');
   log('Opened commit details');
 
   // Check for file items in commit viewer
@@ -39,7 +41,7 @@ module.exports = async function({ page, baseUrl, screenshot, log }) {
   // Click a file to open diff
   await fileItems.first().click();
   await page.waitForTimeout(1500);
-  await screenshot('05-diff-view');
+  await snap('05-diff-view');
   log('Opened diff view for first file');
 
   // Check diff editor rendered
@@ -50,5 +52,5 @@ module.exports = async function({ page, baseUrl, screenshot, log }) {
     log('Diff editor not found — may be a new file with no parent');
   }
 
-  await screenshot('06-final-state');
-};
+  await snap('06-final-state');
+});
