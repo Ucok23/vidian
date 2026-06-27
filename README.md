@@ -42,7 +42,7 @@ Three ways to install — pick what fits your workflow.
 
 ---
 
-### Method 1: One-liner script *(Recommended for most users)*
+### Method 1: One-liner script *(Linux / macOS / Git Bash)*
 
 Downloads a pre-built binary for your OS and architecture:
 
@@ -50,37 +50,34 @@ Downloads a pre-built binary for your OS and architecture:
 curl -sSL https://raw.githubusercontent.com/Ucok23/vidian/main/install.sh | bash
 ```
 
-**Supports:** Linux (amd64, arm64), macOS (amd64, arm64)
+**Supports:** Linux (amd64, arm64), macOS (amd64, arm64), Windows via Git Bash (amd64, arm64)
 
 To pin a specific version:
 ```bash
 VIDIAN_VERSION=v1.0.0 curl -sSL https://raw.githubusercontent.com/Ucok23/vidian/main/install.sh | bash
 ```
 
-**When to use:** You just want it installed and running with no Go or build tools required.
-
-> **Windows:** the install script is Bash-only, so it doesn't run on native Windows. Download the Windows build manually instead — see [Method 4](#method-4-windows) below. (The script does work under WSL / Git Bash.)
+On Git Bash the binary is placed in `~/bin` — make sure that's on your `PATH`.
 
 ---
 
-### Method 2: `go install` *(For Go developers)*
+### Method 2: PowerShell *(Windows)*
 
-Builds and installs directly into `$GOPATH/bin`:
-
-```bash
-go install github.com/Ucok23/vidian/cmd/vidian@latest
+```powershell
+irm https://raw.githubusercontent.com/Ucok23/vidian/main/install.ps1 | iex
 ```
 
-> `$GOPATH/bin` is usually already in your `$PATH`. If not, add this to your shell profile:
-> ```bash
-> export PATH="$PATH:$(go env GOPATH)/bin"
-> ```
+Installs to `%LOCALAPPDATA%\Programs\Vidian` and adds it to your user `PATH` automatically. To pin a version:
 
-**When to use:** You already have Go installed and want the cleanest, most idiomatic Go tool install experience.
+```powershell
+.\install.ps1 -Version v1.0.0
+```
+
+> The binary is unsigned, so Windows SmartScreen may warn on first launch — choose **More info → Run anyway**.
 
 ---
 
-### Method 3: Build from source *(For contributors)*
+### Method 3: Build from source *(Linux / macOS — for contributors)*
 
 Clone and use the Makefile:
 
@@ -101,27 +98,6 @@ make all         # Build frontend + binary (no install)
 make uninstall   # Remove from /usr/local/bin
 make clean       # Remove build artifacts
 ```
-
-**When to use:** You want to contribute to Vidian or need a custom build.
-
----
-
-### Method 4: Windows
-
-There's no package manager install yet — grab the binary from the Releases page:
-
-1. Go to the [latest release](https://github.com/Ucok23/vidian/releases/latest).
-2. Download `vidian_windows_amd64.zip` (or `vidian_windows_arm64.zip` for ARM devices).
-3. Extract it and run `vidian.exe` from a terminal:
-
-```powershell
-vidian.exe .            # open the current folder
-vidian.exe C:\projects  # open a specific folder
-```
-
-> The binary is unsigned, so Windows SmartScreen may warn on first launch — choose **More info → Run anyway**. Tip: put `vidian.exe` in a folder on your `PATH` so you can call `vidian` from anywhere.
-
-**When to use:** You're on Windows and want a ready-to-run binary.
 
 ---
 
