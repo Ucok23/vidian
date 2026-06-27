@@ -59,6 +59,8 @@ VIDIAN_VERSION=v1.0.0 curl -sSL https://raw.githubusercontent.com/Ucok23/vidian/
 
 **When to use:** You just want it installed and running with no Go or build tools required.
 
+> **Windows:** the install script is Bash-only, so it doesn't run on native Windows. Download the Windows build manually instead — see [Method 4](#method-4-windows) below. (The script does work under WSL / Git Bash.)
+
 ---
 
 ### Method 2: `go install` *(For Go developers)*
@@ -101,6 +103,25 @@ make clean       # Remove build artifacts
 ```
 
 **When to use:** You want to contribute to Vidian or need a custom build.
+
+---
+
+### Method 4: Windows
+
+There's no package manager install yet — grab the binary from the Releases page:
+
+1. Go to the [latest release](https://github.com/Ucok23/vidian/releases/latest).
+2. Download `vidian_windows_amd64.zip` (or `vidian_windows_arm64.zip` for ARM devices).
+3. Extract it and run `vidian.exe` from a terminal:
+
+```powershell
+vidian.exe .            # open the current folder
+vidian.exe C:\projects  # open a specific folder
+```
+
+> The binary is unsigned, so Windows SmartScreen may warn on first launch — choose **More info → Run anyway**. Tip: put `vidian.exe` in a folder on your `PATH` so you can call `vidian` from anywhere.
+
+**When to use:** You're on Windows and want a ready-to-run binary.
 
 ---
 
