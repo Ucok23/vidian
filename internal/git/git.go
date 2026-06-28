@@ -3,6 +3,7 @@ package git
 import (
 	"fmt"
 	"os/exec"
+	"sort"
 	"strings"
 	"time"
 
@@ -643,6 +644,289 @@ func BlameAtCommit(path, commit string) ([]BlameLine, error) {
 	return blameLines, nil
 }
 
+type RepoStats struct {
+	TotalFiles        int    `json:"totalFiles"`
+	TotalCommits      int    `json:"totalCommits"`
+	TotalBranches     int    `json:"totalBranches"`
+	TotalTags         int    `json:"totalTags"`
+	TotalContributors int    `json:"totalContributors"`
+	FirstCommitDate   string `json:"firstCommitDate"`
+	LongestStreak     int    `json:"longestStreak"`
+	CurrentStreak     int    `json:"currentStreak"`
+}
+
+type LanguageStat struct {
+	Ext   string `json:"ext"`
+	Count int    `json:"count"`
+}
+
+type DayOfWeekStat struct {
+	Day   string `json:"day"`
+	Count int    `json:"count"`
+}
+
+type HourStat struct {
+	Hour  int `json:"hour"`
+	Count int `json:"count"`
+}
+
+type WordStat struct {
+	Word  string `json:"word"`
+	Count int    `json:"count"`
+}
+
+func GetRepoStats() (RepoStats, error) {
+	var stats RepoStats
+
+	if out, err := RunGitCommand("ls-files"); err == nil {
+		lines := strings.Split(strings.TrimSpace(out), "\n")
+		count := 0
+		for _, l := range lines {
+			if strings.TrimSpace(l) != "" {
+				count++
+			}
+		}
+		stats.TotalFiles = count
+	}
+
+	if out, err := RunGitCommand("rev-list", "--count", "HEAD"); err == nil {
+		fmt.Sscanf(strings.TrimSpace(out), "%d", &stats.TotalCommits)
+	}
+
+	if out, err := RunGitCommand("branch", "-a", "--format=%(refname:short)"); err == nil {
+		seen := make(map[string]bool)
+		for _, line := range strings.Split(out, "\n") {
+			line = strings.TrimSpace(line)
+			if line == "" || strings.Contains(line, "->") || strings.Contains(line, "HEAD") {
+				continue
+			}
+			if strings.HasPrefix(line, "remotes/") {
+				line = strings.TrimPrefix(line, "remotes/")
+			}
+			seen[line] = true
+		}
+		stats.TotalBranches = len(seen)
+	}
+
+	if out, err := RunGitCommand("tag"); err == nil {
+		count := 0
+		for _, l := range strings.Split(out, "\n") {
+			if strings.TrimSpace(l) != "" {
+				count++
+			}
+		}
+		stats.TotalTags = count
+	}
+
+	if out, err := RunGitCommand("shortlog", "-sn", "HEAD"); err == nil {
+		count := 0
+		for _, l := range strings.Split(out, "\n") {
+			if strings.TrimSpace(l) != "" {
+				count++
+			}
+		}
+		stats.TotalContributors = count
+	}
+
+	if out, err := RunGitCommand("log", "--reverse", "--format=%ad", "--date=short"); err == nil {
+		for _, l := range strings.Split(out, "\n") {
+			if l = strings.TrimSpace(l); l != "" {
+				stats.FirstCommitDate = l
+				break
+			}
+		}
+	}
+
+	// streak computation from all-time commit dates
+	if out, err := RunGitCommand("log", "--all", "--format=%ad", "--date=short"); err == nil {
+		seen := make(map[string]bool)
+		for _, l := range strings.Split(out, "\n") {
+			if l = strings.TrimSpace(l); l != "" {
+				seen[l] = true
+			}
+		}
+		dates := make([]string, 0, len(seen))
+		for d := range seen {
+			dates = append(dates, d)
+		}
+		sort.Strings(dates)
+
+		longest, cur := 1, 1
+		for i := 1; i < len(dates); i++ {
+			prev, _ := time.Parse("2006-01-02", dates[i-1])
+			curr, _ := time.Parse("2006-01-02", dates[i])
+			if curr.Sub(prev) == 24*time.Hour {
+				cur++
+				if cur > longest {
+					longest = cur
+				}
+			} else {
+				cur = 1
+			}
+		}
+		if len(dates) > 0 {
+			stats.LongestStreak = longest
+		}
+
+		// current streak: walk back from today
+		today := time.Now().Format("2006-01-02")
+		yesterday := time.Now().AddDate(0, 0, -1).Format("2006-01-02")
+		if seen[today] || seen[yesterday] {
+			check := time.Now()
+			if !seen[today] {
+				check = check.AddDate(0, 0, -1)
+			}
+			streak := 0
+			for {
+				if !seen[check.Format("2006-01-02")] {
+					break
+				}
+				streak++
+				check = check.AddDate(0, 0, -1)
+			}
+			stats.CurrentStreak = streak
+		}
+	}
+
+	return stats, nil
+}
+
+func GetLanguageStats() ([]LanguageStat, error) {
+	out, err := RunGitCommand("ls-files")
+	if err != nil {
+		return []LanguageStat{}, err
+	}
+	counts := make(map[string]int)
+	for _, line := range strings.Split(out, "\n") {
+		line = strings.TrimSpace(line)
+		if line == "" {
+			continue
+		}
+		base := line
+		if idx := strings.LastIndex(line, "/"); idx >= 0 {
+			base = line[idx+1:]
+		}
+		if dot := strings.LastIndex(base, "."); dot >= 0 && dot < len(base)-1 {
+			counts[strings.ToLower(base[dot+1:])]++
+		} else {
+			counts["(no ext)"]++
+		}
+	}
+	type entry struct {
+		ext   string
+		count int
+	}
+	entries := make([]entry, 0, len(counts))
+	for ext, count := range counts {
+		entries = append(entries, entry{ext, count})
+	}
+	sort.Slice(entries, func(i, j int) bool {
+		return entries[i].count > entries[j].count
+	})
+	if len(entries) > 12 {
+		entries = entries[:12]
+	}
+	result := make([]LanguageStat, len(entries))
+	for i, e := range entries {
+		result[i] = LanguageStat{Ext: e.ext, Count: e.count}
+	}
+	return result, nil
+}
+
+var dowNames = [8]string{"", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"}
+
+func GetDayOfWeekStats() ([]DayOfWeekStat, error) {
+	out, err := RunGitCommand("log", "--all", "--format=%ad", "--date=format:%u")
+	if err != nil {
+		return []DayOfWeekStat{}, err
+	}
+	counts := [8]int{}
+	for _, line := range strings.Split(out, "\n") {
+		line = strings.TrimSpace(line)
+		if line == "" {
+			continue
+		}
+		var n int
+		fmt.Sscanf(line, "%d", &n)
+		if n >= 1 && n <= 7 {
+			counts[n]++
+		}
+	}
+	result := make([]DayOfWeekStat, 7)
+	for i := 0; i < 7; i++ {
+		result[i] = DayOfWeekStat{Day: dowNames[i+1], Count: counts[i+1]}
+	}
+	return result, nil
+}
+
+func GetHourStats() ([]HourStat, error) {
+	out, err := RunGitCommand("log", "--all", "--format=%ad", "--date=format:%H")
+	if err != nil {
+		return []HourStat{}, err
+	}
+	counts := [24]int{}
+	for _, line := range strings.Split(out, "\n") {
+		line = strings.TrimSpace(line)
+		if line == "" {
+			continue
+		}
+		var h int
+		fmt.Sscanf(line, "%d", &h)
+		if h >= 0 && h < 24 {
+			counts[h]++
+		}
+	}
+	result := make([]HourStat, 24)
+	for i := 0; i < 24; i++ {
+		result[i] = HourStat{Hour: i, Count: counts[i]}
+	}
+	return result, nil
+}
+
+var stopWords = map[string]bool{
+	"a": true, "an": true, "the": true, "and": true, "or": true, "but": true,
+	"in": true, "on": true, "at": true, "to": true, "for": true, "of": true,
+	"with": true, "from": true, "by": true, "is": true, "are": true, "was": true,
+	"be": true, "it": true, "this": true, "that": true, "into": true, "not": true,
+	"as": true, "up": true, "use": true, "via": true, "also": true, "more": true,
+}
+
+func GetCommitWordStats() ([]WordStat, error) {
+	out, err := RunGitCommand("log", "--all", "--format=%s")
+	if err != nil {
+		return []WordStat{}, err
+	}
+	counts := make(map[string]int)
+	for _, line := range strings.Split(out, "\n") {
+		for _, raw := range strings.Fields(line) {
+			word := strings.ToLower(strings.Trim(raw, ".,!?:;\"'()[]{}"))
+			if len(word) < 3 || stopWords[word] {
+				continue
+			}
+			counts[word]++
+		}
+	}
+	type entry struct {
+		word  string
+		count int
+	}
+	entries := make([]entry, 0, len(counts))
+	for w, c := range counts {
+		entries = append(entries, entry{w, c})
+	}
+	sort.Slice(entries, func(i, j int) bool {
+		return entries[i].count > entries[j].count
+	})
+	if len(entries) > 20 {
+		entries = entries[:20]
+	}
+	result := make([]WordStat, len(entries))
+	for i, e := range entries {
+		result[i] = WordStat{Word: e.word, Count: e.count}
+	}
+	return result, nil
+}
+
 func CompareRefs(ref1, ref2 string) ([]GitChange, error) {
 	out, err := RunGitCommand("diff", "--name-status", ref1+"..."+ref2)
 	if err != nil {
@@ -672,4 +956,56 @@ func GetDiffStat(ref1, ref2 string) (string, error) {
 	return RunGitCommand("diff", "--stat", ref1+"..."+ref2)
 }
 
+func GetActivityDates() ([]string, error) {
+	out, err := RunGitCommand("log", "--all", "--format=%ad", "--date=short", "--since=1.year.ago")
+	if err != nil {
+		return []string{}, err
+	}
+	dates := []string{}
+	for _, line := range strings.Split(out, "\n") {
+		line = strings.TrimSpace(line)
+		if line != "" {
+			dates = append(dates, line)
+		}
+	}
+	return dates, nil
+}
+
+type HotFile struct {
+	Path    string `json:"path"`
+	Commits int    `json:"commits"`
+}
+
+func GetHotFiles(n int) ([]HotFile, error) {
+	out, err := RunGitCommand("log", "--all", "--since=1.year.ago", "--pretty=format:", "--name-only")
+	if err != nil {
+		return []HotFile{}, err
+	}
+	counts := make(map[string]int)
+	for _, line := range strings.Split(out, "\n") {
+		line = strings.TrimSpace(line)
+		if line != "" {
+			counts[line]++
+		}
+	}
+	type entry struct {
+		path    string
+		commits int
+	}
+	entries := make([]entry, 0, len(counts))
+	for path, count := range counts {
+		entries = append(entries, entry{path, count})
+	}
+	sort.Slice(entries, func(i, j int) bool {
+		return entries[i].commits > entries[j].commits
+	})
+	if len(entries) > n {
+		entries = entries[:n]
+	}
+	hotFiles := make([]HotFile, len(entries))
+	for i, e := range entries {
+		hotFiles[i] = HotFile{Path: e.path, Commits: e.commits}
+	}
+	return hotFiles, nil
+}
 

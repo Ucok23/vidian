@@ -174,6 +174,16 @@
         >
           <Icon name="branch" size={24} />
         </div>
+        <!-- svelte-ignore a11y_click_events_have_key_events -->
+        <!-- svelte-ignore a11y_no_static_element_interactions -->
+        <div
+          class="activity-btn"
+          class:active={store.activePath === 'insights:'}
+          onclick={() => store.openInsights()}
+          title="Repo Insights"
+        >
+          <Icon name="chart" size={22} />
+        </div>
       {/if}
     </div>
 
@@ -218,7 +228,7 @@
           class="tab"
           class:active={store.activePath === file.path}
           onclick={() => {
-            if (file.isCommit || file.isGraph) {
+            if (file.isCommit || file.isGraph || file.isInsights) {
               store.activeDiff = null;
               store.activePath = file.path;
             } else {
@@ -232,6 +242,8 @@
             <Icon name="branch" size={14} color="#6366f1" />
           {:else if file.isCommit}
             <Icon name="gitCommit" size={14} color="#fbbf24" />
+          {:else if file.isInsights}
+            <Icon name="chart" size={14} color="#10b981" />
           {:else}
             <Icon name="file" size={14} color={getFileColor(file.name)} />
           {/if}

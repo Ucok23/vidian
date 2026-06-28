@@ -255,9 +255,9 @@ class AppStore {
     }
     const filesToKeep = [];
     for (const file of this.openFiles) {
-      // Virtual tabs (commit details, commit graph) aren't backed by a file on
-      // disk — keep them as-is instead of trying to re-fetch and dropping them.
-      if (file.isCommit || file.isGraph) {
+      // Virtual tabs (commit details, commit graph, insights) aren't backed by a
+      // file on disk — keep them as-is instead of trying to re-fetch and dropping them.
+      if (file.isCommit || file.isGraph || file.isInsights) {
         filesToKeep.push(file);
         continue;
       }
@@ -350,6 +350,20 @@ class AppStore {
         name: 'Commit Graph',
         path: tabPath,
         isGraph: true
+      });
+    }
+    this.activePath = tabPath;
+  }
+
+  openInsights() {
+    this.activeDiff = null;
+    const tabPath = 'insights:';
+    const exists = this.openFiles.some(f => f.path === tabPath);
+    if (!exists) {
+      this.openFiles.push({
+        name: 'Repo Insights',
+        path: tabPath,
+        isInsights: true
       });
     }
     this.activePath = tabPath;

@@ -76,6 +76,13 @@ func Start(cfg *config.Config, embeddedFiles fs.FS) {
 	http.HandleFunc("/api/git/graph", handleGitGraph)
 	http.HandleFunc("/api/git/blame-at", handleGitBlameAt)
 	http.HandleFunc("/api/git/compare", handleGitCompare)
+	http.HandleFunc("/api/git/activity", handleGitActivity)
+	http.HandleFunc("/api/git/hot-files", handleGitHotFiles)
+	http.HandleFunc("/api/git/stats", handleGitStats)
+	http.HandleFunc("/api/git/lang-stats", handleGitLangStats)
+	http.HandleFunc("/api/git/dow-stats", handleGitDowStats)
+	http.HandleFunc("/api/git/hour-stats", handleGitHourStats)
+	http.HandleFunc("/api/git/word-stats", handleGitWordStats)
 	http.HandleFunc("/api/sqlite/tables", handleSQLiteTables)
 	http.HandleFunc("/api/sqlite/query", handleSQLiteQuery)
 	http.Handle("/api/lsp", websocket.Handler(lsp.HandleLSP))
@@ -743,6 +750,108 @@ func handleGitCompare(w http.ResponseWriter, r *http.Request) {
 		"files": files,
 		"stat":  stat,
 	})
+}
+
+func handleGitActivity(w http.ResponseWriter, r *http.Request) {
+	setupCORS(w, r)
+	if r.Method == "OPTIONS" {
+		return
+	}
+	w.Header().Set("Content-Type", "application/json")
+	dates, err := git.GetActivityDates()
+	if err != nil {
+		json.NewEncoder(w).Encode(map[string]int{})
+		return
+	}
+	counts := map[string]int{}
+	for _, date := range dates {
+		counts[date]++
+	}
+	json.NewEncoder(w).Encode(counts)
+}
+
+func handleGitHotFiles(w http.ResponseWriter, r *http.Request) {
+	setupCORS(w, r)
+	if r.Method == "OPTIONS" {
+		return
+	}
+	w.Header().Set("Content-Type", "application/json")
+	files, err := git.GetHotFiles(15)
+	if err != nil {
+		json.NewEncoder(w).Encode([]git.HotFile{})
+		return
+	}
+	json.NewEncoder(w).Encode(files)
+}
+
+func handleGitStats(w http.ResponseWriter, r *http.Request) {
+	setupCORS(w, r)
+	if r.Method == "OPTIONS" {
+		return
+	}
+	w.Header().Set("Content-Type", "application/json")
+	stats, err := git.GetRepoStats()
+	if err != nil {
+		json.NewEncoder(w).Encode(git.RepoStats{})
+		return
+	}
+	json.NewEncoder(w).Encode(stats)
+}
+
+func handleGitLangStats(w http.ResponseWriter, r *http.Request) {
+	setupCORS(w, r)
+	if r.Method == "OPTIONS" {
+		return
+	}
+	w.Header().Set("Content-Type", "application/json")
+	result, err := git.GetLanguageStats()
+	if err != nil {
+		json.NewEncoder(w).Encode([]git.LanguageStat{})
+		return
+	}
+	json.NewEncoder(w).Encode(result)
+}
+
+func handleGitDowStats(w http.ResponseWriter, r *http.Request) {
+	setupCORS(w, r)
+	if r.Method == "OPTIONS" {
+		return
+	}
+	w.Header().Set("Content-Type", "application/json")
+	result, err := git.GetDayOfWeekStats()
+	if err != nil {
+		json.NewEncoder(w).Encode([]git.DayOfWeekStat{})
+		return
+	}
+	json.NewEncoder(w).Encode(result)
+}
+
+func handleGitHourStats(w http.ResponseWriter, r *http.Request) {
+	setupCORS(w, r)
+	if r.Method == "OPTIONS" {
+		return
+	}
+	w.Header().Set("Content-Type", "application/json")
+	result, err := git.GetHourStats()
+	if err != nil {
+		json.NewEncoder(w).Encode([]git.HourStat{})
+		return
+	}
+	json.NewEncoder(w).Encode(result)
+}
+
+func handleGitWordStats(w http.ResponseWriter, r *http.Request) {
+	setupCORS(w, r)
+	if r.Method == "OPTIONS" {
+		return
+	}
+	w.Header().Set("Content-Type", "application/json")
+	result, err := git.GetCommitWordStats()
+	if err != nil {
+		json.NewEncoder(w).Encode([]git.WordStat{})
+		return
+	}
+	json.NewEncoder(w).Encode(result)
 }
 
 var validTableName = regexp.MustCompile(`^[a-zA-Z_][a-zA-Z0-9_]*$`)
