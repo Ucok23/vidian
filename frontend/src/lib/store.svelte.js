@@ -255,9 +255,9 @@ class AppStore {
     }
     const filesToKeep = [];
     for (const file of this.openFiles) {
-      // Virtual tabs (commit details, commit graph) aren't backed by a file on
-      // disk — keep them as-is instead of trying to re-fetch and dropping them.
-      if (file.isCommit || file.isGraph) {
+      // Virtual tabs (commit details, commit graph, insights) aren't backed by a
+      // file on disk — keep them as-is instead of trying to re-fetch and dropping them.
+      if (file.isCommit || file.isGraph || file.isInsights) {
         filesToKeep.push(file);
         continue;
       }
@@ -307,39 +307,46 @@ class AppStore {
   }
 
   async openDiff(path, originalCommit, modifiedCommit, title) {
-    try {
-      let originalContent = '';
-      if (originalCommit) {
-        const res = await fetch(`${API_BASE}/api/git/show?path=${encodeURIComponent(path)}&commit=${originalCommit}`);
-        if (res.ok) {
-          originalContent = await res.text();
-        }
-      }
+   try {
+     let originalContent = '';
+     if (originalCommit) {
+       const res = await fetch(`${API_BASE}/api/git/show?path=${encodeURIComponent(path)}&commit=${originalCommit}`);
+       if (res.ok) {
+         originalContent = await res.text();
+       }
+     }
 
-      let modifiedContent = '';
-      if (modifiedCommit) {
-        const res = await fetch(`${API_BASE}/api/git/show?path=${encodeURIComponent(path)}&commit=${modifiedCommit}`);
-        if (res.ok) {
-          modifiedContent = await res.text();
-        }
-      } else {
-        const res = await fetch(`${API_BASE}/api/file?path=${encodeURIComponent(path)}`);
-        if (res.ok) {
-          modifiedContent = await res.text();
-        }
-      }
+     let modifiedContent = '';
+     if (modifiedCommit) {
+       const res = await fetch(`${API_BASE}/api/git/show?path=${encodeURIComponent(path)}&commit=${modifiedCommit}`);
+       if (res.ok) {
+         modifiedContent = await res.text();
+       }
+     } else {
+       const res = await fetch(`${API_BASE}/api/file?path=${encodeURIComponent(path)}`);
+       if (res.ok) {
+         modifiedContent = await res.text();
+       }
+     }
 
-      this.activeDiff = {
-        path,
-        originalContent,
-        modifiedContent,
-        title
-      };
-      this.activePath = null;
-    } catch (err) {
-      console.error("Failed to load diff contents", path, err);
-    }
-  }
+     this.activeDiff = {
+       path,
+       originalContent,
+       modifiedContent,
+       title
+     };
+     this.activePath = null;
+   } catch (err) {
+     console.error("Failed to load diff contents", path, err);
+   }
+ }
+
+ async openFileAtCommit(path, commitHash) {
+   if (!path) return;
+   const short = commitHash.slice(0, 7);
+   const title = `${path.split('/').pop()} @ ${short}`;
+   await this.openDiff(path, `${commitHash}~1`, commitHash, title);
+ }
 
   openGraph() {
     this.activeDiff = null;
@@ -350,6 +357,20 @@ class AppStore {
         name: 'Commit Graph',
         path: tabPath,
         isGraph: true
+      });
+    }
+    this.activePath = tabPath;
+  }
+
+  openInsights() {
+    this.activeDiff = null;
+    const tabPath = 'insights:';
+    const exists = this.openFiles.some(f => f.path === tabPath);
+    if (!exists) {
+      this.openFiles.push({
+        name: 'Repo Insights',
+        path: tabPath,
+        isInsights: true
       });
     }
     this.activePath = tabPath;

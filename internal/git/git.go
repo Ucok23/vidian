@@ -3,6 +3,8 @@ package git
 import (
 	"fmt"
 	"os/exec"
+	"sort"
+	"strconv"
 	"strings"
 	"time"
 
@@ -286,6 +288,11 @@ func GetCommitFiles(commit string) ([]GitChange, error) {
 	return changes, nil
 }
 
+type CommitStats struct {
+	Insertions int `json:"insertions"`
+	Deletions  int `json:"deletions"`
+}
+
 type CommitDetails struct {
 	Hash     string      `json:"hash"`
 	Author   string      `json:"author"`
@@ -295,6 +302,34 @@ type CommitDetails struct {
 	Subject  string      `json:"subject"`
 	Body     string      `json:"body"`
 	Files    []GitChange `json:"files"`
+	Stats    CommitStats `json:"stats"`
+}
+
+// GetCommitStats sums added/deleted line counts across all files in a commit
+// via `git diff-tree --numstat`. Binary files (reported as "-") are skipped.
+func GetCommitStats(commit string) CommitStats {
+	stats := CommitStats{}
+	out, err := RunGitCommand("diff-tree", "--no-commit-id", "--numstat", "-r", commit)
+	if err != nil {
+		return stats
+	}
+	for _, line := range strings.Split(out, "\n") {
+		line = strings.TrimSpace(line)
+		if line == "" {
+			continue
+		}
+		fields := strings.Fields(line)
+		if len(fields) < 2 {
+			continue
+		}
+		if n, err := strconv.Atoi(fields[0]); err == nil {
+			stats.Insertions += n
+		}
+		if n, err := strconv.Atoi(fields[1]); err == nil {
+			stats.Deletions += n
+		}
+	}
+	return stats
 }
 
 func GetCommitDetails(hash string) (CommitDetails, error) {
@@ -322,6 +357,9 @@ func GetCommitDetails(hash string) (CommitDetails, error) {
 		files = []GitChange{}
 	}
 
+	// 3. Get line stats (insertions/deletions)
+	stats := GetCommitStats(hash)
+
 	return CommitDetails{
 		Hash:     parts[0],
 		Author:   parts[1],
@@ -331,6 +369,7 @@ func GetCommitDetails(hash string) (CommitDetails, error) {
 		Subject:  parts[5],
 		Body:     body,
 		Files:    files,
+		Stats:    stats,
 	}, nil
 }
 
@@ -672,4 +711,56 @@ func GetDiffStat(ref1, ref2 string) (string, error) {
 	return RunGitCommand("diff", "--stat", ref1+"..."+ref2)
 }
 
+func GetActivityDates() ([]string, error) {
+	out, err := RunGitCommand("log", "--all", "--format=%ad", "--date=short", "--since=1.year.ago")
+	if err != nil {
+		return []string{}, err
+	}
+	dates := []string{}
+	for _, line := range strings.Split(out, "\n") {
+		line = strings.TrimSpace(line)
+		if line != "" {
+			dates = append(dates, line)
+		}
+	}
+	return dates, nil
+}
+
+type HotFile struct {
+	Path    string `json:"path"`
+	Commits int    `json:"commits"`
+}
+
+func GetHotFiles(n int) ([]HotFile, error) {
+	out, err := RunGitCommand("log", "--all", "--since=1.year.ago", "--pretty=format:", "--name-only")
+	if err != nil {
+		return []HotFile{}, err
+	}
+	counts := make(map[string]int)
+	for _, line := range strings.Split(out, "\n") {
+		line = strings.TrimSpace(line)
+		if line != "" {
+			counts[line]++
+		}
+	}
+	type entry struct {
+		path    string
+		commits int
+	}
+	entries := make([]entry, 0, len(counts))
+	for path, count := range counts {
+		entries = append(entries, entry{path, count})
+	}
+	sort.Slice(entries, func(i, j int) bool {
+		return entries[i].commits > entries[j].commits
+	})
+	if len(entries) > n {
+		entries = entries[:n]
+	}
+	hotFiles := make([]HotFile, len(entries))
+	for i, e := range entries {
+		hotFiles[i] = HotFile{Path: e.path, Commits: e.commits}
+	}
+	return hotFiles, nil
+}
 

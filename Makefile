@@ -1,9 +1,10 @@
 BINARY     := vidian
 CMD        := ./cmd/vidian/main.go
-INSTALL_DIR := /usr/local/bin
 FRONTEND   := ./frontend
+PREFIX     ?= /usr/local
+INSTALL_DIR = $(PREFIX)/bin
 
-.PHONY: all build install uninstall dev clean help visual-test
+.PHONY: all build install uninstall dev clean help visual-test user-install frontend
 
 ## help: Show this help message
 help:
@@ -37,6 +38,14 @@ install: all
 		cp $(BINARY) $(INSTALL_DIR)/$(BINARY); \
 	fi
 	@echo "✓ Installed! Run: $(BINARY) ."
+
+## user-install: Build everything and install to ~/.local/bin (no sudo)
+user-install: all
+	@echo "→ Installing $(BINARY) to $(HOME)/.local/bin ..."
+	@mkdir -p $(HOME)/.local/bin
+	@cp $(BINARY) $(HOME)/.local/bin/$(BINARY)
+	@echo "✓ Installed! Run: $(BINARY) ."
+	@echo "  Tip: add $(HOME)/.local/bin to your PATH if needed."
 
 ## uninstall: Remove installed binary from $(INSTALL_DIR)
 uninstall:
