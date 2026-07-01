@@ -307,39 +307,46 @@ class AppStore {
   }
 
   async openDiff(path, originalCommit, modifiedCommit, title) {
-    try {
-      let originalContent = '';
-      if (originalCommit) {
-        const res = await fetch(`${API_BASE}/api/git/show?path=${encodeURIComponent(path)}&commit=${originalCommit}`);
-        if (res.ok) {
-          originalContent = await res.text();
-        }
-      }
+   try {
+     let originalContent = '';
+     if (originalCommit) {
+       const res = await fetch(`${API_BASE}/api/git/show?path=${encodeURIComponent(path)}&commit=${originalCommit}`);
+       if (res.ok) {
+         originalContent = await res.text();
+       }
+     }
 
-      let modifiedContent = '';
-      if (modifiedCommit) {
-        const res = await fetch(`${API_BASE}/api/git/show?path=${encodeURIComponent(path)}&commit=${modifiedCommit}`);
-        if (res.ok) {
-          modifiedContent = await res.text();
-        }
-      } else {
-        const res = await fetch(`${API_BASE}/api/file?path=${encodeURIComponent(path)}`);
-        if (res.ok) {
-          modifiedContent = await res.text();
-        }
-      }
+     let modifiedContent = '';
+     if (modifiedCommit) {
+       const res = await fetch(`${API_BASE}/api/git/show?path=${encodeURIComponent(path)}&commit=${modifiedCommit}`);
+       if (res.ok) {
+         modifiedContent = await res.text();
+       }
+     } else {
+       const res = await fetch(`${API_BASE}/api/file?path=${encodeURIComponent(path)}`);
+       if (res.ok) {
+         modifiedContent = await res.text();
+       }
+     }
 
-      this.activeDiff = {
-        path,
-        originalContent,
-        modifiedContent,
-        title
-      };
-      this.activePath = null;
-    } catch (err) {
-      console.error("Failed to load diff contents", path, err);
-    }
-  }
+     this.activeDiff = {
+       path,
+       originalContent,
+       modifiedContent,
+       title
+     };
+     this.activePath = null;
+   } catch (err) {
+     console.error("Failed to load diff contents", path, err);
+   }
+ }
+
+ async openFileAtCommit(path, commitHash) {
+   if (!path) return;
+   const short = commitHash.slice(0, 7);
+   const title = `${path.split('/').pop()} @ ${short}`;
+   await this.openDiff(path, `${commitHash}~1`, commitHash, title);
+ }
 
   openGraph() {
     this.activeDiff = null;

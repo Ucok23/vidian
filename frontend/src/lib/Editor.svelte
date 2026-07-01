@@ -20,17 +20,11 @@
   let diffContainer = $state(null);
   let diffEditor = null;
 
-  // Blame / heatmap / lens state
-  let currentBlame = $state([]);
-  let blameDecorations = [];
-  let heatmapDecorations = [];
-  let showAllBlame = $state(false);
-  let showHeatmap = $state(false);
-  let showCodeLens = $state(false);
-  let blamePopup = $state(null);
-  let blamePopupDetail = $state(null);
-  let currentHoverLine = -1;
+  // Blame panel / selection state
+  let blamePanel = $state(null);
+  let blamePanelDetail = $state(null);
   const commitDetailsCache = {};
+  const panelDetailLoading = new Set();
 
   // Selection / line history state
   let hasSelection = $state(false);
@@ -187,10 +181,14 @@
   // Load blame data when active file changes
   $effect(() => {
     const file = store.activeFile;
-    currentBlame = [];
     store.currentLineBlame = null;
-    if (editor && blameDecorations.length > 0) {
-      blameDecorations = editor.deltaDecorations(blameDecorations, []);
+    blamePanel = null;
+    blamePanelDetail = null;
+    if (editor) {
+      editor.deltaDecorations(blameDecorations, []);
+      editor.deltaDecorations(heatmapDecorations, []);
+      blameDecorations = [];
+      heatmapDecorations = [];
     }
 
     if (file && !file.isBinary && !file.isImage && !file.isVideo && !file.isAudio && !file.isCSV && !file.isSQLite && store.git.isGit) {
@@ -205,10 +203,17 @@
     }
   });
 
+  let showAllBlame = $state(false);
+  let showHeatmap = $state(false);
+  let showCodeLens = $state(false);
+  let currentBlame = $state([]);
+  let blameDecorations = [];
+  let heatmapDecorations = [];
+
   // Apply decorations when blame data or toggle changes
   $effect(() => {
     if (!editor || currentBlame.length === 0) return;
-    if (showAllBlame) {
+    if (showAllBlame || blamePanel) {
       applyAllBlameDecorations();
     } else {
       updateBlameDecoration();
@@ -335,6 +340,26 @@
     ]);
   }
 
+  function handleBlameClick(line) {
+    const record = currentBlame.find(r => r.line === line);
+    if (!record || !store.activeFile) return;
+    blamePanel = { line, record };
+    blamePanelDetail = null;
+    panelDetailLoading.delete(record.commit);
+    if (!panelDetailLoading.has(record.commit)) {
+      panelDetailLoading.add(record.commit);
+      blamePanelDetail = null;
+      fetch(`/api/git/commit?hash=${record.commit.slice(0, 8)}`)
+        .then(res => res.ok ? res.json() : Promise.reject())
+        .then(detail => {
+          blamePanelDetail = detail;
+          panelDetailLoading.delete(record.commit);
+        })
+        .catch(() => panelDetailLoading.delete(record.commit));
+    }
+    if (editor) editor.focus();
+  }
+
   onMount(async () => {
     // Create Monaco instance
     editor = monaco.editor.create(editorContainer, {
@@ -434,37 +459,37 @@
       selectionEnd = sel.endLineNumber;
     });
 
-    // Blame hover popup
-    editor.onMouseMove(async (e) => {
-      if (!showAllBlame || currentBlame.length === 0) { blamePopup = null; return; }
-      const line = e.target?.position?.lineNumber;
-      if (!line) { blamePopup = null; return; }
-      const record = currentBlame.find(r => r.line === line);
-      if (!record) { blamePopup = null; return; }
+    const noopMouseMove = () => {};
+    const noopMouseLeave = () => {};
 
-      const ev = e.event.browserEvent;
-      const x = Math.min(ev.clientX + 18, window.innerWidth - 360);
-      const y = Math.min(ev.clientY + 18, window.innerHeight - 130);
-      currentHoverLine = line;
-      blamePopup = { x, y, record };
+    editor.onMouseMove(noopMouseMove);
+    editor.onMouseLeave(noopMouseLeave);
 
-      if (!commitDetailsCache[record.commit]) {
-        try {
-          const res = await fetch(`/api/git/commit?hash=${record.commit.slice(0, 8)}`);
-          if (res.ok && currentHoverLine === line) {
-            commitDetailsCache[record.commit] = await res.json();
-            blamePopupDetail = commitDetailsCache[record.commit];
-          }
-        } catch (_) {}
-      } else {
-        blamePopupDetail = commitDetailsCache[record.commit];
+    // Click handler for inline blame annotations: open the blame panel for the clicked line
+    editor.getDomNode().addEventListener('click', (e) => {
+      if (!currentBlame.length) return;
+      const target = e.target;
+      if (!(target instanceof HTMLElement)) return;
+      const blameEl = target.closest('.monaco-git-blame-inline');
+      if (!blameEl) return;
+
+      const monacoEl = editor.getDomNode();
+      if (!monacoEl) return;
+      const rows = monacoEl.querySelectorAll('.view-line');
+      let matchedLine = null;
+      for (const row of rows) {
+        if (row.contains(blameEl)) {
+          const lineAttr = row.getAttribute('line');
+          if (lineAttr) matchedLine = parseInt(lineAttr, 10);
+          break;
+        }
       }
-    });
-
-    editor.onMouseLeave(() => {
-      currentHoverLine = -1;
-      blamePopup = null;
-      blamePopupDetail = null;
+      if (matchedLine && store.activeFile) {
+        const record = currentBlame.find(r => r.line === matchedLine);
+        if (record) {
+          handleBlameClick(matchedLine);
+        }
+      }
     });
 
     // Register LSP providers
@@ -664,6 +689,14 @@
           onclick={viewPreviousRevision}
           title="Diff this file vs its previous revision"
         >Prev Rev</button>
+
+        {#if store.currentLineBlame}
+          <div class="act-sep"></div>
+          <button
+            onclick={() => store.openCommit(store.currentLineBlame.commit)}
+            title="Open commit for current line"
+          >Open Commit</button>
+        {/if}
       {/if}
 
       {#if hasSelection && store.git.isGit}
@@ -677,16 +710,49 @@
     </div>
   {/if}
 
-  {#if blamePopup}
-    <div class="blame-popup" style="left: {blamePopup.x}px; top: {blamePopup.y}px">
+  <!-- Blame popup removed: replaced with inline blame accordion panel. -->
+
+  {#if blamePanel}
+    <div class="blame-panel">
       <div class="bp-header">
-        <span class="bp-hash">{blamePopup.record.commit.slice(0, 8)}</span>
-        <span class="bp-date">{blamePopup.record.date}</span>
+        <div>
+          <span class="bp-hash">{blamePanel.record.commit.slice(0, 8)}</span>
+          <span class="bp-date">{blamePanel.record.date}</span>
+        </div>
+        <button class="bp-close" onclick={() => blamePanel = null} title="Close">×</button>
       </div>
-      <div class="bp-author">{blamePopup.record.author}</div>
-      <div class="bp-message">{blamePopup.record.summary}</div>
-      {#if blamePopupDetail?.files?.length}
-        <div class="bp-files">{blamePopupDetail.files.length} file{blamePopupDetail.files.length !== 1 ? 's' : ''} changed</div>
+      <div class="bp-author">{blamePanel.record.author}</div>
+      <div class="bp-message">{blamePanel.record.summary}</div>
+      <div class="bp-actions">
+        <button
+          class="bp-action"
+          onclick={() => store.openFileAtCommit(store.activeFile?.path, blamePanel.record.commit)}
+          title="Open this file version at this commit"
+        >Open File Diff</button>
+        <button
+          class="bp-action"
+          onclick={() => store.openCommit(blamePanel.record.commit)}
+          title="Open commit details"
+        >Open Commit</button>
+      </div>
+      {#if blamePanelDetail}
+        <div class="bp-detail">
+          <div class="bp-detail-row">
+            <span>Files:</span>
+            <strong>{blamePanelDetail.files?.length ?? 0}</strong>
+          </div>
+          <div class="bp-detail-row">
+            <span>Insertions:</span>
+            <strong class="diff-added">+{blamePanelDetail.stats?.insertions ?? 0}</strong>
+          </div>
+          <div class="bp-detail-row">
+            <span>Deletions:</span>
+            <strong class="diff-removed">-{blamePanelDetail.stats?.deletions ?? 0}</strong>
+          </div>
+          {#if blamePanelDetail.body}
+            <div class="bp-body">{blamePanelDetail.body}</div>
+          {/if}
+        </div>
       {/if}
     </div>
   {/if}
@@ -722,8 +788,9 @@
     opacity: 0.55;
     font-style: italic;
     font-size: 11px;
-    pointer-events: none;
+    pointer-events: auto;
     user-select: none;
+    cursor: pointer;
   }
 
   /* Welcome Screen styles */
@@ -1142,6 +1209,131 @@
   :global(.heat-mild) { background: #eab308; width: 3px; margin-left: 1px; border-radius: 2px; }
   :global(.heat-cool) { background: #3b82f6; width: 3px; margin-left: 1px; border-radius: 2px; }
   :global(.heat-cold) { background: #6b7280; width: 3px; margin-left: 1px; border-radius: 2px; }
+
+  .blame-panel {
+    position: absolute;
+    right: 170px;
+    bottom: 18px;
+    z-index: 9999;
+    background: #1e1e2a;
+    border: 1px solid #3a3a50;
+    border-radius: 10px;
+    padding: 12px 14px;
+    width: 320px;
+    max-width: 360px;
+    box-shadow: 0 8px 24px rgba(0, 0, 0, 0.45);
+    font-size: 12px;
+    line-height: 1.45;
+  }
+
+  .blame-panel .bp-header {
+    display: flex;
+    align-items: flex-start;
+    justify-content: space-between;
+    margin-bottom: 4px;
+  }
+
+  .blame-panel .bp-close {
+    background: none;
+    border: none;
+    color: #6b7280;
+    cursor: pointer;
+    font-size: 14px;
+    line-height: 1;
+    padding: 0 2px;
+    border-radius: 4px;
+  }
+
+  .blame-panel .bp-close:hover {
+    background: rgba(255, 255, 255, 0.08);
+    color: #e3e3e6;
+  }
+
+  .blame-panel .bp-hash {
+    font-family: monospace;
+    font-size: 11px;
+    color: #818cf8;
+    background: rgba(99, 102, 241, 0.12);
+    padding: 1px 6px;
+    border-radius: 4px;
+  }
+
+  .blame-panel .bp-date {
+    font-size: 11px;
+    color: #8e8e93;
+    margin-left: 8px;
+  }
+
+  .blame-panel .bp-author {
+    font-weight: 600;
+    color: #e3e3e6;
+    margin-bottom: 3px;
+    margin-top: 2px;
+  }
+
+  .blame-panel .bp-message {
+    color: #c4c4cc;
+    font-size: 12px;
+    margin-bottom: 8px;
+  }
+
+  .blame-panel .bp-actions {
+    display: flex;
+    gap: 6px;
+    margin-bottom: 8px;
+  }
+
+  .blame-panel .bp-action {
+    flex: 1;
+    background: rgba(99, 102, 241, 0.12);
+    color: #818cf8;
+    border: 1px solid rgba(99, 102, 241, 0.25);
+    border-radius: 5px;
+    padding: 4px 7px;
+    font-size: 11px;
+    font-weight: 500;
+    cursor: pointer;
+    text-align: center;
+    transition: background-color 0.12s, border-color 0.12s;
+  }
+
+  .blame-panel .bp-action:hover {
+    background: rgba(99, 102, 241, 0.25);
+    border-color: rgba(99, 102, 241, 0.55);
+  }
+
+  .blame-panel .bp-detail {
+    border-top: 1px solid #2d2d40;
+    padding-top: 8px;
+  }
+
+  .blame-panel .bp-detail-row {
+    display: flex;
+    justify-content: space-between;
+    font-size: 11px;
+    color: #8e8e93;
+    margin-bottom: 3px;
+  }
+
+  .blame-panel .bp-detail-row strong {
+    color: #e3e3e6;
+  }
+
+  .blame-panel .diff-added {
+    color: #4ade80;
+  }
+
+  .blame-panel .diff-removed {
+    color: #f87171;
+  }
+
+  .blame-panel .bp-body {
+    margin-top: 6px;
+    font-size: 11px;
+    color: #c4c4cc;
+    max-height: 140px;
+    overflow: auto;
+  }
 
   .blame-popup {
     position: fixed;

@@ -279,7 +279,7 @@
               >
                 <!-- svelte-ignore a11y_click_events_have_key_events -->
                 <!-- svelte-ignore a11y_no_static_element_interactions -->
-                <div class="commit-summary" onclick={() => store.openCommit(commit.hash)}>
+                <div class="commit-summary" onclick={() => store.openFileAtCommit(store.activePath, commit.hash)}>
                   <div class="commit-header">
                     <span class="commit-author">{commit.author}</span>
                     <span class="commit-hash">{commit.hash.slice(0, 7)}</span>
