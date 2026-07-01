@@ -4,7 +4,7 @@ FRONTEND   := ./frontend
 PREFIX     ?= /usr/local
 INSTALL_DIR = $(PREFIX)/bin
 
-.PHONY: all build install uninstall dev clean help visual-test user-install
+.PHONY: all build install uninstall dev clean help visual-test user-install frontend
 
 ## help: Show this help message
 help:

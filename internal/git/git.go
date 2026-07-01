@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"os/exec"
 	"sort"
+	"strconv"
 	"strings"
 	"time"
 
@@ -287,6 +288,11 @@ func GetCommitFiles(commit string) ([]GitChange, error) {
 	return changes, nil
 }
 
+type CommitStats struct {
+	Insertions int `json:"insertions"`
+	Deletions  int `json:"deletions"`
+}
+
 type CommitDetails struct {
 	Hash     string      `json:"hash"`
 	Author   string      `json:"author"`
@@ -296,6 +302,34 @@ type CommitDetails struct {
 	Subject  string      `json:"subject"`
 	Body     string      `json:"body"`
 	Files    []GitChange `json:"files"`
+	Stats    CommitStats `json:"stats"`
+}
+
+// GetCommitStats sums added/deleted line counts across all files in a commit
+// via `git diff-tree --numstat`. Binary files (reported as "-") are skipped.
+func GetCommitStats(commit string) CommitStats {
+	stats := CommitStats{}
+	out, err := RunGitCommand("diff-tree", "--no-commit-id", "--numstat", "-r", commit)
+	if err != nil {
+		return stats
+	}
+	for _, line := range strings.Split(out, "\n") {
+		line = strings.TrimSpace(line)
+		if line == "" {
+			continue
+		}
+		fields := strings.Fields(line)
+		if len(fields) < 2 {
+			continue
+		}
+		if n, err := strconv.Atoi(fields[0]); err == nil {
+			stats.Insertions += n
+		}
+		if n, err := strconv.Atoi(fields[1]); err == nil {
+			stats.Deletions += n
+		}
+	}
+	return stats
 }
 
 func GetCommitDetails(hash string) (CommitDetails, error) {
@@ -323,6 +357,9 @@ func GetCommitDetails(hash string) (CommitDetails, error) {
 		files = []GitChange{}
 	}
 
+	// 3. Get line stats (insertions/deletions)
+	stats := GetCommitStats(hash)
+
 	return CommitDetails{
 		Hash:     parts[0],
 		Author:   parts[1],
@@ -332,6 +369,7 @@ func GetCommitDetails(hash string) (CommitDetails, error) {
 		Subject:  parts[5],
 		Body:     body,
 		Files:    files,
+		Stats:    stats,
 	}, nil
 }
 

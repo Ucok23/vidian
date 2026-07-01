@@ -20,11 +20,10 @@
   let diffContainer = $state(null);
   let diffEditor = null;
 
-  // Blame panel / selection state
-  let blamePanel = $state(null);
-  let blamePanelDetail = $state(null);
+  // Blame accordion (inline view zone) state
+  let expandedBlameLine = $state(null);
+  let blameZone = null; // { id, zone, detailNode, commit }
   const commitDetailsCache = {};
-  const panelDetailLoading = new Set();
 
   // Selection / line history state
   let hasSelection = $state(false);
@@ -182,8 +181,7 @@
   $effect(() => {
     const file = store.activeFile;
     store.currentLineBlame = null;
-    blamePanel = null;
-    blamePanelDetail = null;
+    closeBlameZone();
     if (editor) {
       editor.deltaDecorations(blameDecorations, []);
       editor.deltaDecorations(heatmapDecorations, []);
@@ -213,7 +211,7 @@
   // Apply decorations when blame data or toggle changes
   $effect(() => {
     if (!editor || currentBlame.length === 0) return;
-    if (showAllBlame || blamePanel) {
+    if (showAllBlame || expandedBlameLine != null) {
       applyAllBlameDecorations();
     } else {
       updateBlameDecoration();
@@ -297,6 +295,7 @@
       return {
         range: new monaco.Range(record.line, endColumn, record.line, endColumn),
         options: {
+          showIfCollapsed: true,
           after: {
             content: `    ${author}  ${record.date}  •  ${summary}`,
             inlineClassName: 'monaco-git-blame-inline'
@@ -331,6 +330,7 @@
       {
         range: new monaco.Range(line, endColumn, line, endColumn),
         options: {
+          showIfCollapsed: true,
           after: {
             content: `    ${record.author}, ${record.date} • ${record.summary}`,
             inlineClassName: 'monaco-git-blame-inline'
@@ -340,24 +340,147 @@
     ]);
   }
 
-  function handleBlameClick(line) {
-    const record = currentBlame.find(r => r.line === line);
-    if (!record || !store.activeFile) return;
-    blamePanel = { line, record };
-    blamePanelDetail = null;
-    panelDetailLoading.delete(record.commit);
-    if (!panelDetailLoading.has(record.commit)) {
-      panelDetailLoading.add(record.commit);
-      blamePanelDetail = null;
-      fetch(`/api/git/commit?hash=${record.commit.slice(0, 8)}`)
-        .then(res => res.ok ? res.json() : Promise.reject())
-        .then(detail => {
-          blamePanelDetail = detail;
-          panelDetailLoading.delete(record.commit);
-        })
-        .catch(() => panelDetailLoading.delete(record.commit));
+  // Blame accordion: expands inline (as a Monaco view zone) directly under the
+  // clicked line, pushing the following lines down, rather than floating a
+  // detached popup on top of the code.
+  function closeBlameZone() {
+    if (editor && blameZone) {
+      const id = blameZone.id;
+      editor.changeViewZones(accessor => accessor.removeZone(id));
     }
-    if (editor) editor.focus();
+    blameZone = null;
+    expandedBlameLine = null;
+  }
+
+  function buildBlameAccordionNode(record) {
+    // Monaco forces `width: 100%` as an inline style on the zone's own dom node
+    // (overriding any stylesheet rule), so the fixed-width accordion box has to
+    // live in an inner wrapper that Monaco never touches.
+    const el = document.createElement('div');
+    el.className = 'blame-zone-wrapper';
+
+    const box = document.createElement('div');
+    box.className = 'blame-accordion';
+    el.appendChild(box);
+
+    const header = document.createElement('div');
+    header.className = 'ba-header';
+
+    const left = document.createElement('div');
+    left.className = 'ba-header-left';
+    const hash = document.createElement('span');
+    hash.className = 'ba-hash';
+    hash.textContent = record.commit.slice(0, 8);
+    const date = document.createElement('span');
+    date.className = 'ba-date';
+    date.textContent = record.date;
+    left.append(hash, date);
+
+    const closeBtn = document.createElement('button');
+    closeBtn.className = 'ba-close';
+    closeBtn.textContent = '×';
+    closeBtn.title = 'Collapse';
+    closeBtn.onclick = () => closeBlameZone();
+    header.append(left, closeBtn);
+
+    const author = document.createElement('div');
+    author.className = 'ba-author';
+    author.textContent = record.author;
+
+    const message = document.createElement('div');
+    message.className = 'ba-message';
+    message.textContent = record.summary;
+
+    const actions = document.createElement('div');
+    actions.className = 'ba-actions';
+    const diffBtn = document.createElement('button');
+    diffBtn.className = 'ba-action';
+    diffBtn.textContent = 'Open File Diff';
+    diffBtn.onclick = () => store.openFileAtCommit(store.activeFile?.path, record.commit);
+    const commitBtn = document.createElement('button');
+    commitBtn.className = 'ba-action';
+    commitBtn.textContent = 'Open Commit';
+    commitBtn.onclick = () => store.openCommit(record.commit);
+    actions.append(diffBtn, commitBtn);
+
+    const detail = document.createElement('div');
+    detail.className = 'ba-detail';
+    detail.textContent = 'Loading…';
+
+    box.append(header, author, message, actions, detail);
+    return { el, detailNode: detail };
+  }
+
+  function renderBlameDetail(detailNode, detail) {
+    detailNode.innerHTML = '';
+    const rows = [
+      ['Files', detail.files?.length ?? 0, null],
+      ['Insertions', `+${detail.stats?.insertions ?? 0}`, 'diff-added'],
+      ['Deletions', `-${detail.stats?.deletions ?? 0}`, 'diff-removed'],
+    ];
+    for (const [label, value, cls] of rows) {
+      const row = document.createElement('div');
+      row.className = 'ba-detail-row';
+      const span = document.createElement('span');
+      span.textContent = `${label}:`;
+      const strong = document.createElement('strong');
+      if (cls) strong.classList.add(cls);
+      strong.textContent = String(value);
+      row.append(span, strong);
+      detailNode.appendChild(row);
+    }
+    if (detail.body) {
+      const body = document.createElement('div');
+      body.className = 'ba-body';
+      body.textContent = detail.body;
+      detailNode.appendChild(body);
+    }
+  }
+
+  function growBlameZone(zoneId, zone) {
+    requestAnimationFrame(() => {
+      if (!editor || blameZone?.id !== zoneId) return;
+      zone.heightInPx = zone.domNode.scrollHeight || zone.heightInPx;
+      editor.changeViewZones(accessor => accessor.layoutZone(zoneId));
+    });
+  }
+
+  function loadBlameDetail(record, detailNode, zoneId, zone) {
+    const cached = commitDetailsCache[record.commit];
+    if (cached) {
+      renderBlameDetail(detailNode, cached);
+      growBlameZone(zoneId, zone);
+      return;
+    }
+    fetch(`/api/git/commit?hash=${record.commit.slice(0, 8)}`)
+      .then(res => res.ok ? res.json() : Promise.reject())
+      .then(detail => {
+        commitDetailsCache[record.commit] = detail;
+        if (blameZone?.id !== zoneId) return;
+        renderBlameDetail(detailNode, detail);
+        growBlameZone(zoneId, zone);
+      })
+      .catch(() => { detailNode.textContent = ''; });
+  }
+
+  function toggleBlameZone(line) {
+    if (expandedBlameLine === line) {
+      closeBlameZone();
+      return;
+    }
+    const record = currentBlame.find(r => r.line === line);
+    if (!record || !store.activeFile || !editor) return;
+    closeBlameZone();
+    expandedBlameLine = line;
+
+    const { el, detailNode } = buildBlameAccordionNode(record);
+    const zone = { afterLineNumber: line, heightInPx: 92, domNode: el };
+    let id;
+    editor.changeViewZones(accessor => { id = accessor.addZone(zone); });
+    blameZone = { id, commit: record.commit };
+
+    loadBlameDetail(record, detailNode, id, zone);
+    editor.focus();
   }
 
   onMount(async () => {
@@ -465,29 +588,19 @@
     editor.onMouseMove(noopMouseMove);
     editor.onMouseLeave(noopMouseLeave);
 
-    // Click handler for inline blame annotations: open the blame panel for the clicked line
-    editor.getDomNode().addEventListener('click', (e) => {
+    // Click handler for inline blame annotations: toggle the blame accordion for the clicked line.
+    // Uses Monaco's own mouse-target API (not raw DOM listeners) since it's the
+    // officially supported way to detect clicks on decorations reliably.
+    editor.onMouseDown(e => {
       if (!currentBlame.length) return;
-      const target = e.target;
-      if (!(target instanceof HTMLElement)) return;
-      const blameEl = target.closest('.monaco-git-blame-inline');
-      if (!blameEl) return;
-
-      const monacoEl = editor.getDomNode();
-      if (!monacoEl) return;
-      const rows = monacoEl.querySelectorAll('.view-line');
-      let matchedLine = null;
-      for (const row of rows) {
-        if (row.contains(blameEl)) {
-          const lineAttr = row.getAttribute('line');
-          if (lineAttr) matchedLine = parseInt(lineAttr, 10);
-          break;
-        }
-      }
+      if (e.target.type !== monaco.editor.MouseTargetType.CONTENT_TEXT) return;
+      const el = e.target.element;
+      if (!el || !el.classList.contains('monaco-git-blame-inline')) return;
+      const matchedLine = e.target.position?.lineNumber;
       if (matchedLine && store.activeFile) {
         const record = currentBlame.find(r => r.line === matchedLine);
         if (record) {
-          handleBlameClick(matchedLine);
+          toggleBlameZone(matchedLine);
         }
       }
     });
@@ -710,52 +823,9 @@
     </div>
   {/if}
 
-  <!-- Blame popup removed: replaced with inline blame accordion panel. -->
-
-  {#if blamePanel}
-    <div class="blame-panel">
-      <div class="bp-header">
-        <div>
-          <span class="bp-hash">{blamePanel.record.commit.slice(0, 8)}</span>
-          <span class="bp-date">{blamePanel.record.date}</span>
-        </div>
-        <button class="bp-close" onclick={() => blamePanel = null} title="Close">×</button>
-      </div>
-      <div class="bp-author">{blamePanel.record.author}</div>
-      <div class="bp-message">{blamePanel.record.summary}</div>
-      <div class="bp-actions">
-        <button
-          class="bp-action"
-          onclick={() => store.openFileAtCommit(store.activeFile?.path, blamePanel.record.commit)}
-          title="Open this file version at this commit"
-        >Open File Diff</button>
-        <button
-          class="bp-action"
-          onclick={() => store.openCommit(blamePanel.record.commit)}
-          title="Open commit details"
-        >Open Commit</button>
-      </div>
-      {#if blamePanelDetail}
-        <div class="bp-detail">
-          <div class="bp-detail-row">
-            <span>Files:</span>
-            <strong>{blamePanelDetail.files?.length ?? 0}</strong>
-          </div>
-          <div class="bp-detail-row">
-            <span>Insertions:</span>
-            <strong class="diff-added">+{blamePanelDetail.stats?.insertions ?? 0}</strong>
-          </div>
-          <div class="bp-detail-row">
-            <span>Deletions:</span>
-            <strong class="diff-removed">-{blamePanelDetail.stats?.deletions ?? 0}</strong>
-          </div>
-          {#if blamePanelDetail.body}
-            <div class="bp-body">{blamePanelDetail.body}</div>
-          {/if}
-        </div>
-      {/if}
-    </div>
-  {/if}
+  <!-- Blame detail is rendered as a Monaco view zone (see toggleBlameZone), an
+       inline accordion row inserted directly below the clicked line rather
+       than a floating popup. -->
 </div>
 
 <style>
@@ -1210,30 +1280,50 @@
   :global(.heat-cool) { background: #3b82f6; width: 3px; margin-left: 1px; border-radius: 2px; }
   :global(.heat-cold) { background: #6b7280; width: 3px; margin-left: 1px; border-radius: 2px; }
 
-  .blame-panel {
-    position: absolute;
-    right: 170px;
-    bottom: 18px;
-    z-index: 9999;
-    background: #1e1e2a;
-    border: 1px solid #3a3a50;
-    border-radius: 10px;
-    padding: 12px 14px;
-    width: 320px;
-    max-width: 360px;
-    box-shadow: 0 8px 24px rgba(0, 0, 0, 0.45);
-    font-size: 12px;
-    line-height: 1.45;
+  /* Blame accordion: injected as a Monaco view zone DOM node (toggleBlameZone),
+     so these rules must be :global since the node lives outside Svelte's
+     scoped markup. */
+  :global(.blame-zone-wrapper) {
+    overflow: visible;
   }
 
-  .blame-panel .bp-header {
+  :global(.blame-accordion) {
+    box-sizing: border-box;
+    position: sticky;
+    left: 60px;
+    width: 340px;
+    margin: 2px 0;
+    background: #24242e;
+    border: 1px solid #3a3a50;
+    border-left: 3px solid #6366f1;
+    border-radius: 6px;
+    padding: 8px 12px;
+    font-size: 12px;
+    line-height: 1.45;
+    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+    overflow: hidden;
+    animation: blame-accordion-open 0.12s ease-out;
+  }
+
+  @keyframes blame-accordion-open {
+    from { opacity: 0; transform: translateY(-4px); }
+    to { opacity: 1; transform: translateY(0); }
+  }
+
+  :global(.ba-header) {
     display: flex;
     align-items: flex-start;
     justify-content: space-between;
     margin-bottom: 4px;
   }
 
-  .blame-panel .bp-close {
+  :global(.ba-header-left) {
+    display: flex;
+    align-items: baseline;
+    gap: 8px;
+  }
+
+  :global(.ba-close) {
     background: none;
     border: none;
     color: #6b7280;
@@ -1244,12 +1334,12 @@
     border-radius: 4px;
   }
 
-  .blame-panel .bp-close:hover {
+  :global(.ba-close:hover) {
     background: rgba(255, 255, 255, 0.08);
     color: #e3e3e6;
   }
 
-  .blame-panel .bp-hash {
+  :global(.ba-hash) {
     font-family: monospace;
     font-size: 11px;
     color: #818cf8;
@@ -1258,32 +1348,30 @@
     border-radius: 4px;
   }
 
-  .blame-panel .bp-date {
+  :global(.ba-date) {
     font-size: 11px;
     color: #8e8e93;
-    margin-left: 8px;
   }
 
-  .blame-panel .bp-author {
+  :global(.ba-author) {
     font-weight: 600;
     color: #e3e3e6;
     margin-bottom: 3px;
-    margin-top: 2px;
   }
 
-  .blame-panel .bp-message {
+  :global(.ba-message) {
     color: #c4c4cc;
     font-size: 12px;
     margin-bottom: 8px;
   }
 
-  .blame-panel .bp-actions {
+  :global(.ba-actions) {
     display: flex;
     gap: 6px;
     margin-bottom: 8px;
   }
 
-  .blame-panel .bp-action {
+  :global(.ba-action) {
     flex: 1;
     background: rgba(99, 102, 241, 0.12);
     color: #818cf8;
@@ -1297,17 +1385,17 @@
     transition: background-color 0.12s, border-color 0.12s;
   }
 
-  .blame-panel .bp-action:hover {
+  :global(.ba-action:hover) {
     background: rgba(99, 102, 241, 0.25);
     border-color: rgba(99, 102, 241, 0.55);
   }
 
-  .blame-panel .bp-detail {
+  :global(.ba-detail) {
     border-top: 1px solid #2d2d40;
     padding-top: 8px;
   }
 
-  .blame-panel .bp-detail-row {
+  :global(.ba-detail-row) {
     display: flex;
     justify-content: space-between;
     font-size: 11px;
@@ -1315,78 +1403,24 @@
     margin-bottom: 3px;
   }
 
-  .blame-panel .bp-detail-row strong {
+  :global(.ba-detail-row strong) {
     color: #e3e3e6;
   }
 
-  .blame-panel .diff-added {
+  :global(.ba-detail-row strong.diff-added) {
     color: #4ade80;
   }
 
-  .blame-panel .diff-removed {
+  :global(.ba-detail-row strong.diff-removed) {
     color: #f87171;
   }
 
-  .blame-panel .bp-body {
+  :global(.ba-body) {
     margin-top: 6px;
     font-size: 11px;
     color: #c4c4cc;
     max-height: 140px;
     overflow: auto;
-  }
-
-  .blame-popup {
-    position: fixed;
-    z-index: 9999;
-    background: #1e1e2a;
-    border: 1px solid #3a3a50;
-    border-radius: 8px;
-    padding: 10px 14px;
-    min-width: 280px;
-    max-width: 380px;
-    box-shadow: 0 8px 24px rgba(0, 0, 0, 0.45);
-    pointer-events: none;
-    font-size: 12px;
-    line-height: 1.5;
-  }
-
-  .bp-header {
-    display: flex;
-    justify-content: space-between;
-    align-items: center;
-    margin-bottom: 5px;
-  }
-
-  .bp-hash {
-    font-family: monospace;
-    font-size: 11px;
-    color: #818cf8;
-    background: rgba(99, 102, 241, 0.12);
-    padding: 1px 6px;
-    border-radius: 4px;
-  }
-
-  .bp-date {
-    font-size: 11px;
-    color: #8e8e93;
-  }
-
-  .bp-author {
-    font-weight: 600;
-    color: #e3e3e6;
-    margin-bottom: 3px;
-  }
-
-  .bp-message {
-    color: #c4c4cc;
-    font-size: 12px;
-  }
-
-  .bp-files {
-    margin-top: 6px;
-    padding-top: 6px;
-    border-top: 1px solid #2d2d40;
-    font-size: 11px;
-    color: #8e8e93;
+    white-space: pre-wrap;
   }
 </style>
