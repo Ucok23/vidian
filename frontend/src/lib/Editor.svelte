@@ -20,16 +20,9 @@
   let diffContainer = $state(null);
   let diffEditor = null;
 
-  // Blame / heatmap / lens state
-  let currentBlame = $state([]);
-  let blameDecorations = [];
-  let heatmapDecorations = [];
-  let showAllBlame = $state(false);
-  let showHeatmap = $state(false);
-  let showCodeLens = $state(false);
-  let blamePopup = $state(null);
-  let blamePopupDetail = $state(null);
-  let currentHoverLine = -1;
+  // Blame accordion (inline view zone) state
+  let expandedBlameLine = $state(null);
+  let blameZone = null; // { id, zone, detailNode, commit }
   const commitDetailsCache = {};
 
   // Selection / line history state
@@ -187,14 +180,17 @@
   // Load blame data when active file changes
   $effect(() => {
     const file = store.activeFile;
-    currentBlame = [];
     store.currentLineBlame = null;
-    if (editor && blameDecorations.length > 0) {
-      blameDecorations = editor.deltaDecorations(blameDecorations, []);
+    closeBlameZone();
+    if (editor) {
+      editor.deltaDecorations(blameDecorations, []);
+      editor.deltaDecorations(heatmapDecorations, []);
+      blameDecorations = [];
+      heatmapDecorations = [];
     }
 
     if (file && !file.isBinary && !file.isImage && !file.isVideo && !file.isAudio && !file.isCSV && !file.isSQLite && store.git.isGit) {
-      fetch(`/api/git/blame?path=${encodeURIComponent(file.path)}`)
+      fetch(store.apiUrl(`/api/git/blame?path=${encodeURIComponent(file.path)}`))
         .then(res => res.json())
         .then(data => {
           currentBlame = data;
@@ -205,10 +201,17 @@
     }
   });
 
+  let showAllBlame = $state(false);
+  let showHeatmap = $state(false);
+  let showCodeLens = $state(false);
+  let currentBlame = $state([]);
+  let blameDecorations = [];
+  let heatmapDecorations = [];
+
   // Apply decorations when blame data or toggle changes
   $effect(() => {
     if (!editor || currentBlame.length === 0) return;
-    if (showAllBlame) {
+    if (showAllBlame || expandedBlameLine != null) {
       applyAllBlameDecorations();
     } else {
       updateBlameDecoration();
@@ -257,7 +260,7 @@
     if (!store.activeFile || loadingPrevRev) return;
     loadingPrevRev = true;
     try {
-      const res = await fetch(`/api/git/log?path=${encodeURIComponent(store.activeFile.path)}`);
+      const res = await fetch(store.apiUrl(`/api/git/log?path=${encodeURIComponent(store.activeFile.path)}`));
       const history = await res.json();
       if (history.length < 2) { loadingPrevRev = false; return; }
       const name = store.activeFile.path.split('/').pop();
@@ -271,7 +274,7 @@
     loadingLineHistory = true;
     try {
       const path = store.activeFile.path;
-      const res = await fetch(`/api/git/line-history?path=${encodeURIComponent(path)}&start=${selectionStart}&end=${selectionEnd}`);
+      const res = await fetch(store.apiUrl(`/api/git/line-history?path=${encodeURIComponent(path)}&start=${selectionStart}&end=${selectionEnd}`));
       const commits = await res.json();
       store.lineHistory = { path, start: selectionStart, end: selectionEnd, commits };
       store.sidebarTab = 'git';
@@ -292,6 +295,7 @@
       return {
         range: new monaco.Range(record.line, endColumn, record.line, endColumn),
         options: {
+          showIfCollapsed: true,
           after: {
             content: `    ${author}  ${record.date}  •  ${summary}`,
             inlineClassName: 'monaco-git-blame-inline'
@@ -326,6 +330,7 @@
       {
         range: new monaco.Range(line, endColumn, line, endColumn),
         options: {
+          showIfCollapsed: true,
           after: {
             content: `    ${record.author}, ${record.date} • ${record.summary}`,
             inlineClassName: 'monaco-git-blame-inline'
@@ -333,6 +338,149 @@
         }
       }
     ]);
+  }
+
+  // Blame accordion: expands inline (as a Monaco view zone) directly under the
+  // clicked line, pushing the following lines down, rather than floating a
+  // detached popup on top of the code.
+  function closeBlameZone() {
+    if (editor && blameZone) {
+      const id = blameZone.id;
+      editor.changeViewZones(accessor => accessor.removeZone(id));
+    }
+    blameZone = null;
+    expandedBlameLine = null;
+  }
+
+  function buildBlameAccordionNode(record) {
+    // Monaco forces `width: 100%` as an inline style on the zone's own dom node
+    // (overriding any stylesheet rule), so the fixed-width accordion box has to
+    // live in an inner wrapper that Monaco never touches.
+    const el = document.createElement('div');
+    el.className = 'blame-zone-wrapper';
+
+    const box = document.createElement('div');
+    box.className = 'blame-accordion';
+    el.appendChild(box);
+
+    const header = document.createElement('div');
+    header.className = 'ba-header';
+
+    const left = document.createElement('div');
+    left.className = 'ba-header-left';
+    const hash = document.createElement('span');
+    hash.className = 'ba-hash';
+    hash.textContent = record.commit.slice(0, 8);
+    const date = document.createElement('span');
+    date.className = 'ba-date';
+    date.textContent = record.date;
+    left.append(hash, date);
+
+    const closeBtn = document.createElement('button');
+    closeBtn.className = 'ba-close';
+    closeBtn.textContent = '×';
+    closeBtn.title = 'Collapse';
+    closeBtn.onclick = () => closeBlameZone();
+    header.append(left, closeBtn);
+
+    const author = document.createElement('div');
+    author.className = 'ba-author';
+    author.textContent = record.author;
+
+    const message = document.createElement('div');
+    message.className = 'ba-message';
+    message.textContent = record.summary;
+
+    const actions = document.createElement('div');
+    actions.className = 'ba-actions';
+    const diffBtn = document.createElement('button');
+    diffBtn.className = 'ba-action';
+    diffBtn.textContent = 'Open File Diff';
+    diffBtn.onclick = () => store.openFileAtCommit(store.activeFile?.path, record.commit);
+    const commitBtn = document.createElement('button');
+    commitBtn.className = 'ba-action';
+    commitBtn.textContent = 'Open Commit';
+    commitBtn.onclick = () => store.openCommit(record.commit);
+    actions.append(diffBtn, commitBtn);
+
+    const detail = document.createElement('div');
+    detail.className = 'ba-detail';
+    detail.textContent = 'Loading…';
+
+    box.append(header, author, message, actions, detail);
+    return { el, detailNode: detail };
+  }
+
+  function renderBlameDetail(detailNode, detail) {
+    detailNode.innerHTML = '';
+    const rows = [
+      ['Files', detail.files?.length ?? 0, null],
+      ['Insertions', `+${detail.stats?.insertions ?? 0}`, 'diff-added'],
+      ['Deletions', `-${detail.stats?.deletions ?? 0}`, 'diff-removed'],
+    ];
+    for (const [label, value, cls] of rows) {
+      const row = document.createElement('div');
+      row.className = 'ba-detail-row';
+      const span = document.createElement('span');
+      span.textContent = `${label}:`;
+      const strong = document.createElement('strong');
+      if (cls) strong.classList.add(cls);
+      strong.textContent = String(value);
+      row.append(span, strong);
+      detailNode.appendChild(row);
+    }
+    if (detail.body) {
+      const body = document.createElement('div');
+      body.className = 'ba-body';
+      body.textContent = detail.body;
+      detailNode.appendChild(body);
+    }
+  }
+
+  function growBlameZone(zoneId, zone) {
+    requestAnimationFrame(() => {
+      if (!editor || blameZone?.id !== zoneId) return;
+      zone.heightInPx = zone.domNode.scrollHeight || zone.heightInPx;
+      editor.changeViewZones(accessor => accessor.layoutZone(zoneId));
+    });
+  }
+
+  function loadBlameDetail(record, detailNode, zoneId, zone) {
+    const cached = commitDetailsCache[record.commit];
+    if (cached) {
+      renderBlameDetail(detailNode, cached);
+      growBlameZone(zoneId, zone);
+      return;
+    }
+    fetch(store.apiUrl(`/api/git/commit?hash=${record.commit.slice(0, 8)}`))
+      .then(res => res.ok ? res.json() : Promise.reject())
+      .then(detail => {
+        commitDetailsCache[record.commit] = detail;
+        if (blameZone?.id !== zoneId) return;
+        renderBlameDetail(detailNode, detail);
+        growBlameZone(zoneId, zone);
+      })
+      .catch(() => { detailNode.textContent = ''; });
+  }
+
+  function toggleBlameZone(line) {
+    if (expandedBlameLine === line) {
+      closeBlameZone();
+      return;
+    }
+    const record = currentBlame.find(r => r.line === line);
+    if (!record || !store.activeFile || !editor) return;
+    closeBlameZone();
+    expandedBlameLine = line;
+
+    const { el, detailNode } = buildBlameAccordionNode(record);
+    const zone = { afterLineNumber: line, heightInPx: 92, domNode: el };
+    let id;
+    editor.changeViewZones(accessor => { id = accessor.addZone(zone); });
+    blameZone = { id, commit: record.commit };
+
+    loadBlameDetail(record, detailNode, id, zone);
+    editor.focus();
   }
 
   onMount(async () => {
@@ -434,37 +582,27 @@
       selectionEnd = sel.endLineNumber;
     });
 
-    // Blame hover popup
-    editor.onMouseMove(async (e) => {
-      if (!showAllBlame || currentBlame.length === 0) { blamePopup = null; return; }
-      const line = e.target?.position?.lineNumber;
-      if (!line) { blamePopup = null; return; }
-      const record = currentBlame.find(r => r.line === line);
-      if (!record) { blamePopup = null; return; }
+    const noopMouseMove = () => {};
+    const noopMouseLeave = () => {};
 
-      const ev = e.event.browserEvent;
-      const x = Math.min(ev.clientX + 18, window.innerWidth - 360);
-      const y = Math.min(ev.clientY + 18, window.innerHeight - 130);
-      currentHoverLine = line;
-      blamePopup = { x, y, record };
+    editor.onMouseMove(noopMouseMove);
+    editor.onMouseLeave(noopMouseLeave);
 
-      if (!commitDetailsCache[record.commit]) {
-        try {
-          const res = await fetch(`/api/git/commit?hash=${record.commit.slice(0, 8)}`);
-          if (res.ok && currentHoverLine === line) {
-            commitDetailsCache[record.commit] = await res.json();
-            blamePopupDetail = commitDetailsCache[record.commit];
-          }
-        } catch (_) {}
-      } else {
-        blamePopupDetail = commitDetailsCache[record.commit];
+    // Click handler for inline blame annotations: toggle the blame accordion for the clicked line.
+    // Uses Monaco's own mouse-target API (not raw DOM listeners) since it's the
+    // officially supported way to detect clicks on decorations reliably.
+    editor.onMouseDown(e => {
+      if (!currentBlame.length) return;
+      if (e.target.type !== monaco.editor.MouseTargetType.CONTENT_TEXT) return;
+      const el = e.target.element;
+      if (!el || !el.classList.contains('monaco-git-blame-inline')) return;
+      const matchedLine = e.target.position?.lineNumber;
+      if (matchedLine && store.activeFile) {
+        const record = currentBlame.find(r => r.line === matchedLine);
+        if (record) {
+          toggleBlameZone(matchedLine);
+        }
       }
-    });
-
-    editor.onMouseLeave(() => {
-      currentHoverLine = -1;
-      blamePopup = null;
-      blamePopupDetail = null;
     });
 
     // Register LSP providers
@@ -664,6 +802,14 @@
           onclick={viewPreviousRevision}
           title="Diff this file vs its previous revision"
         >Prev Rev</button>
+
+        {#if store.currentLineBlame}
+          <div class="act-sep"></div>
+          <button
+            onclick={() => store.openCommit(store.currentLineBlame.commit)}
+            title="Open commit for current line"
+          >Open Commit</button>
+        {/if}
       {/if}
 
       {#if hasSelection && store.git.isGit}
@@ -677,19 +823,9 @@
     </div>
   {/if}
 
-  {#if blamePopup}
-    <div class="blame-popup" style="left: {blamePopup.x}px; top: {blamePopup.y}px">
-      <div class="bp-header">
-        <span class="bp-hash">{blamePopup.record.commit.slice(0, 8)}</span>
-        <span class="bp-date">{blamePopup.record.date}</span>
-      </div>
-      <div class="bp-author">{blamePopup.record.author}</div>
-      <div class="bp-message">{blamePopup.record.summary}</div>
-      {#if blamePopupDetail?.files?.length}
-        <div class="bp-files">{blamePopupDetail.files.length} file{blamePopupDetail.files.length !== 1 ? 's' : ''} changed</div>
-      {/if}
-    </div>
-  {/if}
+  <!-- Blame detail is rendered as a Monaco view zone (see toggleBlameZone), an
+       inline accordion row inserted directly below the clicked line rather
+       than a floating popup. -->
 </div>
 
 <style>
@@ -722,8 +858,9 @@
     opacity: 0.55;
     font-style: italic;
     font-size: 11px;
-    pointer-events: none;
+    pointer-events: auto;
     user-select: none;
+    cursor: pointer;
   }
 
   /* Welcome Screen styles */
@@ -1143,29 +1280,66 @@
   :global(.heat-cool) { background: #3b82f6; width: 3px; margin-left: 1px; border-radius: 2px; }
   :global(.heat-cold) { background: #6b7280; width: 3px; margin-left: 1px; border-radius: 2px; }
 
-  .blame-popup {
-    position: fixed;
-    z-index: 9999;
-    background: #1e1e2a;
+  /* Blame accordion: injected as a Monaco view zone DOM node (toggleBlameZone),
+     so these rules must be :global since the node lives outside Svelte's
+     scoped markup. */
+  :global(.blame-zone-wrapper) {
+    overflow: visible;
+  }
+
+  :global(.blame-accordion) {
+    box-sizing: border-box;
+    position: sticky;
+    left: 60px;
+    width: 340px;
+    margin: 2px 0;
+    background: #24242e;
     border: 1px solid #3a3a50;
-    border-radius: 8px;
-    padding: 10px 14px;
-    min-width: 280px;
-    max-width: 380px;
-    box-shadow: 0 8px 24px rgba(0, 0, 0, 0.45);
-    pointer-events: none;
+    border-left: 3px solid #6366f1;
+    border-radius: 6px;
+    padding: 8px 12px;
     font-size: 12px;
-    line-height: 1.5;
+    line-height: 1.45;
+    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+    overflow: hidden;
+    animation: blame-accordion-open 0.12s ease-out;
   }
 
-  .bp-header {
+  @keyframes blame-accordion-open {
+    from { opacity: 0; transform: translateY(-4px); }
+    to { opacity: 1; transform: translateY(0); }
+  }
+
+  :global(.ba-header) {
     display: flex;
+    align-items: flex-start;
     justify-content: space-between;
-    align-items: center;
-    margin-bottom: 5px;
+    margin-bottom: 4px;
   }
 
-  .bp-hash {
+  :global(.ba-header-left) {
+    display: flex;
+    align-items: baseline;
+    gap: 8px;
+  }
+
+  :global(.ba-close) {
+    background: none;
+    border: none;
+    color: #6b7280;
+    cursor: pointer;
+    font-size: 14px;
+    line-height: 1;
+    padding: 0 2px;
+    border-radius: 4px;
+  }
+
+  :global(.ba-close:hover) {
+    background: rgba(255, 255, 255, 0.08);
+    color: #e3e3e6;
+  }
+
+  :global(.ba-hash) {
     font-family: monospace;
     font-size: 11px;
     color: #818cf8;
@@ -1174,27 +1348,79 @@
     border-radius: 4px;
   }
 
-  .bp-date {
+  :global(.ba-date) {
     font-size: 11px;
     color: #8e8e93;
   }
 
-  .bp-author {
+  :global(.ba-author) {
     font-weight: 600;
     color: #e3e3e6;
     margin-bottom: 3px;
   }
 
-  .bp-message {
+  :global(.ba-message) {
     color: #c4c4cc;
     font-size: 12px;
+    margin-bottom: 8px;
   }
 
-  .bp-files {
-    margin-top: 6px;
-    padding-top: 6px;
+  :global(.ba-actions) {
+    display: flex;
+    gap: 6px;
+    margin-bottom: 8px;
+  }
+
+  :global(.ba-action) {
+    flex: 1;
+    background: rgba(99, 102, 241, 0.12);
+    color: #818cf8;
+    border: 1px solid rgba(99, 102, 241, 0.25);
+    border-radius: 5px;
+    padding: 4px 7px;
+    font-size: 11px;
+    font-weight: 500;
+    cursor: pointer;
+    text-align: center;
+    transition: background-color 0.12s, border-color 0.12s;
+  }
+
+  :global(.ba-action:hover) {
+    background: rgba(99, 102, 241, 0.25);
+    border-color: rgba(99, 102, 241, 0.55);
+  }
+
+  :global(.ba-detail) {
     border-top: 1px solid #2d2d40;
+    padding-top: 8px;
+  }
+
+  :global(.ba-detail-row) {
+    display: flex;
+    justify-content: space-between;
     font-size: 11px;
     color: #8e8e93;
+    margin-bottom: 3px;
+  }
+
+  :global(.ba-detail-row strong) {
+    color: #e3e3e6;
+  }
+
+  :global(.ba-detail-row strong.diff-added) {
+    color: #4ade80;
+  }
+
+  :global(.ba-detail-row strong.diff-removed) {
+    color: #f87171;
+  }
+
+  :global(.ba-body) {
+    margin-top: 6px;
+    font-size: 11px;
+    color: #c4c4cc;
+    max-height: 140px;
+    overflow: auto;
+    white-space: pre-wrap;
   }
 </style>

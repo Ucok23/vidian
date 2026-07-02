@@ -4,6 +4,8 @@ const API_BASE = ''; // Same host
 
 class AppStore {
   workspace = $state({ name: '', path: '' });
+  workspaces = $state([]);
+  currentWorkspaceId = $state(null);
   openFiles = $state([]);
   activePath = $state(null);
   sidebarTab = $state('explorer'); // 'explorer', 'search'
@@ -31,24 +33,81 @@ class AppStore {
     return this.openFiles.find(f => f.path === this.activePath) || null;
   }
 
+  // apiUrl builds a request URL scoped to the current workspace by appending the
+  // ws query parameter. All backend endpoints (except /api/workspaces and
+  // /api/ping) require it.
+  apiUrl(path) {
+    if (!this.currentWorkspaceId) return `${API_BASE}${path}`;
+    const sep = path.includes('?') ? '&' : '?';
+    return `${API_BASE}${path}${sep}ws=${encodeURIComponent(this.currentWorkspaceId)}`;
+  }
+
   async init() {
     try {
-      const res = await fetch(`${API_BASE}/api/workspace`);
-      this.workspace = await res.json();
-      // Load root directory
-      await this.loadDir('');
-      this.expandedPaths.add('');
-      this.expandedPaths = new Set(this.expandedPaths);
-      // Load Git info
-      await this.loadGit();
+      await this.loadWorkspaces();
+      if (this.workspaces.length === 0) {
+        console.error("No workspaces registered");
+        return;
+      }
+      const urlWs = new URLSearchParams(window.location.search).get('ws');
+      const current = this.workspaces.find(w => w.id === urlWs) || this.workspaces[0];
+      this.currentWorkspaceId = current.id;
+      this.workspace = { name: current.name, path: current.path };
+      this.syncUrl(current.id);
+      await this.loadWorkspaceData();
     } catch (err) {
       console.error("Failed to load workspace info", err);
     }
   }
 
+  // loadWorkspaces refreshes the list of directories served by this instance.
+  async loadWorkspaces() {
+    const res = await fetch(`${API_BASE}/api/workspaces`);
+    const list = await res.json();
+    this.workspaces = Array.isArray(list) ? list : [];
+  }
+
+  // loadWorkspaceData (re)loads the file tree and git info for the current
+  // workspace, resetting any per-workspace tree state first.
+  async loadWorkspaceData() {
+    this.dirContents = {};
+    this.expandedPaths = new Set();
+    await this.loadDir('');
+    this.expandedPaths.add('');
+    this.expandedPaths = new Set(this.expandedPaths);
+    await this.loadGit();
+  }
+
+  // syncUrl keeps ?ws=<id> in the address bar so a refresh stays on the same
+  // workspace without pushing a new history entry.
+  syncUrl(id) {
+    const url = new URL(window.location.href);
+    if (url.searchParams.get('ws') !== id) {
+      url.searchParams.set('ws', id);
+      window.history.replaceState({}, '', url);
+    }
+  }
+
+  async switchWorkspace(id) {
+    if (id === this.currentWorkspaceId) return;
+    const ws = this.workspaces.find(w => w.id === id);
+    if (!ws) return;
+    this.currentWorkspaceId = id;
+    this.workspace = { name: ws.name, path: ws.path };
+    this.syncUrl(id);
+    // Reset all per-workspace UI state before loading the new tree.
+    this.closeAllFiles();
+    this.searchQuery = '';
+    this.searchResults = [];
+    this.currentLineBlame = null;
+    this.lineHistory = null;
+    this.compareResult = null;
+    await this.loadWorkspaceData();
+  }
+
   async loadDir(path) {
     try {
-      const res = await fetch(`${API_BASE}/api/dir?path=${encodeURIComponent(path)}`);
+      const res = await fetch(this.apiUrl(`/api/dir?path=${encodeURIComponent(path)}`));
       const data = await res.json();
       // Sort: directories first, then files alphabetically
       data.sort((a, b) => {
@@ -82,7 +141,7 @@ class AppStore {
     if (!exists) {
       // Fetch content
       try {
-        const res = await fetch(`${API_BASE}/api/file?path=${encodeURIComponent(path)}`);
+        const res = await fetch(this.apiUrl(`/api/file?path=${encodeURIComponent(path)}`));
         const contentType = res.headers.get("content-type") || "";
         
         let fileData;
@@ -112,7 +171,7 @@ class AppStore {
             path,
             isBinary: false,
             isImage: true,
-            imageUrl: `${API_BASE}/api/file?path=${encodeURIComponent(path)}`,
+            imageUrl: this.apiUrl(`/api/file?path=${encodeURIComponent(path)}`),
             content: null
           };
         } else if (contentType.includes("video/") || contentType.includes("audio/")) {
@@ -122,7 +181,7 @@ class AppStore {
             isBinary: false,
             isVideo: contentType.includes("video/"),
             isAudio: contentType.includes("audio/"),
-            mediaUrl: `${API_BASE}/api/file?path=${encodeURIComponent(path)}`,
+            mediaUrl: this.apiUrl(`/api/file?path=${encodeURIComponent(path)}`),
             mimeType: contentType,
             content: null
           };
@@ -207,7 +266,7 @@ class AppStore {
     }
     this.isSearching = true;
     try {
-      const res = await fetch(`${API_BASE}/api/search?q=${encodeURIComponent(query)}`);
+      const res = await fetch(this.apiUrl(`/api/search?q=${encodeURIComponent(query)}`));
       this.searchResults = await res.json();
     } catch (err) {
       console.error("Search failed", err);
@@ -218,7 +277,7 @@ class AppStore {
 
   async loadGit() {
     try {
-      const res = await fetch(`${API_BASE}/api/git/branches`);
+      const res = await fetch(this.apiUrl(`/api/git/branches`));
       this.git = await res.json();
     } catch (err) {
       console.error("Failed to load git info", err);
@@ -229,7 +288,7 @@ class AppStore {
   async checkoutBranch(branch) {
     this.isCheckingOut = true;
     try {
-      const res = await fetch(`${API_BASE}/api/git/checkout?branch=${encodeURIComponent(branch)}`, {
+      const res = await fetch(this.apiUrl(`/api/git/checkout?branch=${encodeURIComponent(branch)}`), {
         method: 'POST'
       });
       if (!res.ok) {
@@ -262,7 +321,7 @@ class AppStore {
         continue;
       }
       try {
-        const res = await fetch(`${API_BASE}/api/file?path=${encodeURIComponent(file.path)}`);
+        const res = await fetch(this.apiUrl(`/api/file?path=${encodeURIComponent(file.path)}`));
         if (res.status === 404) {
           continue;
         }
@@ -276,13 +335,13 @@ class AppStore {
         } else if (contentType.includes("image/")) {
           file.isBinary = false;
           file.isImage = true;
-          file.imageUrl = `${API_BASE}/api/file?path=${encodeURIComponent(file.path)}&t=${Date.now()}`;
+          file.imageUrl = this.apiUrl(`/api/file?path=${encodeURIComponent(file.path)}&t=${Date.now()}`);
           file.content = null;
         } else if (contentType.includes("video/") || contentType.includes("audio/")) {
           file.isBinary = false;
           file.isVideo = contentType.includes("video/");
           file.isAudio = contentType.includes("audio/");
-          file.mediaUrl = `${API_BASE}/api/file?path=${encodeURIComponent(file.path)}&t=${Date.now()}`;
+          file.mediaUrl = this.apiUrl(`/api/file?path=${encodeURIComponent(file.path)}&t=${Date.now()}`);
           file.mimeType = contentType;
           file.content = null;
         } else {
@@ -307,39 +366,46 @@ class AppStore {
   }
 
   async openDiff(path, originalCommit, modifiedCommit, title) {
-    try {
-      let originalContent = '';
-      if (originalCommit) {
-        const res = await fetch(`${API_BASE}/api/git/show?path=${encodeURIComponent(path)}&commit=${originalCommit}`);
-        if (res.ok) {
-          originalContent = await res.text();
-        }
-      }
+   try {
+     let originalContent = '';
+     if (originalCommit) {
+       const res = await fetch(this.apiUrl(`/api/git/show?path=${encodeURIComponent(path)}&commit=${originalCommit}`));
+       if (res.ok) {
+         originalContent = await res.text();
+       }
+     }
 
-      let modifiedContent = '';
-      if (modifiedCommit) {
-        const res = await fetch(`${API_BASE}/api/git/show?path=${encodeURIComponent(path)}&commit=${modifiedCommit}`);
-        if (res.ok) {
-          modifiedContent = await res.text();
-        }
-      } else {
-        const res = await fetch(`${API_BASE}/api/file?path=${encodeURIComponent(path)}`);
-        if (res.ok) {
-          modifiedContent = await res.text();
-        }
-      }
+     let modifiedContent = '';
+     if (modifiedCommit) {
+       const res = await fetch(this.apiUrl(`/api/git/show?path=${encodeURIComponent(path)}&commit=${modifiedCommit}`));
+       if (res.ok) {
+         modifiedContent = await res.text();
+       }
+     } else {
+       const res = await fetch(this.apiUrl(`/api/file?path=${encodeURIComponent(path)}`));
+       if (res.ok) {
+         modifiedContent = await res.text();
+       }
+     }
 
-      this.activeDiff = {
-        path,
-        originalContent,
-        modifiedContent,
-        title
-      };
-      this.activePath = null;
-    } catch (err) {
-      console.error("Failed to load diff contents", path, err);
-    }
-  }
+     this.activeDiff = {
+       path,
+       originalContent,
+       modifiedContent,
+       title
+     };
+     this.activePath = null;
+   } catch (err) {
+     console.error("Failed to load diff contents", path, err);
+   }
+ }
+
+ async openFileAtCommit(path, commitHash) {
+   if (!path) return;
+   const short = commitHash.slice(0, 7);
+   const title = `${path.split('/').pop()} @ ${short}`;
+   await this.openDiff(path, `${commitHash}~1`, commitHash, title);
+ }
 
   openGraph() {
     this.activeDiff = null;
@@ -376,7 +442,7 @@ class AppStore {
     const exists = this.openFiles.some(f => f.path === tabPath);
     if (!exists) {
       try {
-        const res = await fetch(`${API_BASE}/api/git/commit?hash=${hash}`);
+        const res = await fetch(this.apiUrl(`/api/git/commit?hash=${hash}`));
         if (res.ok) {
           const details = await res.json();
           const commitTab = {

@@ -125,7 +125,7 @@
     isLoading = true;
     error = '';
     try {
-      const res = await fetch('/api/git/graph');
+      const res = await fetch(store.apiUrl('/api/git/graph'));
       commits = (await res.json()) || [];
     } catch (e) {
       error = 'Failed to load commit graph';

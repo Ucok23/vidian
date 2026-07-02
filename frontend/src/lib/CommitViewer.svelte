@@ -12,9 +12,9 @@
     if (loadingParent || parentHash) return;
     loadingParent = true;
     try {
-      const res = await fetch(`/api/git/log?path=`);
+      const res = await fetch(store.apiUrl(`/api/git/log?path=`));
       // Use git show to get parent
-      const pRes = await fetch(`/api/git/commit?hash=${commit.hash}%5E`); // ^
+      const pRes = await fetch(store.apiUrl(`/api/git/commit?hash=${commit.hash}%5E`)); // ^
       if (pRes.ok) {
         const p = await pRes.json();
         parentHash = p.hash;

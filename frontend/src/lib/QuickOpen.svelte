@@ -27,7 +27,7 @@
 
   async function loadFiles() {
     try {
-      const res = await fetch('/api/files');
+      const res = await fetch(store.apiUrl('/api/files'));
       filesList = await res.json();
     } catch (err) {
       console.error("Failed to load files for Quick Open", err);

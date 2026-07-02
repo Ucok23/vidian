@@ -3,17 +3,10 @@ package git
 import (
 	"testing"
 	"time"
-
-	"github.com/Ucok23/vidian/internal/config"
 )
 
-func init() {
-	// Point the git commands at the repo root (two levels up from this package).
-	config.ActiveConfig = &config.Config{WorkspaceDir: "../.."}
-}
-
 func TestGetActivityDates(t *testing.T) {
-	dates, err := GetActivityDates()
+	dates, err := GetActivityDates(testDir)
 	if err != nil {
 		t.Fatalf("GetActivityDates returned error: %v", err)
 	}
@@ -39,7 +32,7 @@ func TestGetActivityDates(t *testing.T) {
 }
 
 func TestGetHotFiles(t *testing.T) {
-	files, err := GetHotFiles(10)
+	files, err := GetHotFiles(testDir, 10)
 	if err != nil {
 		t.Fatalf("GetHotFiles returned error: %v", err)
 	}
@@ -73,7 +66,7 @@ func TestGetHotFiles(t *testing.T) {
 
 func TestGetHotFilesLimit(t *testing.T) {
 	// Requesting 3 should never return more than 3.
-	files, err := GetHotFiles(3)
+	files, err := GetHotFiles(testDir, 3)
 	if err != nil {
 		t.Fatalf("GetHotFiles(3) returned error: %v", err)
 	}
