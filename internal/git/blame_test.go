@@ -3,17 +3,14 @@ package git
 import (
 	"strings"
 	"testing"
-
-	"github.com/Ucok23/vidian/internal/config"
 )
 
-func init() {
-	config.ActiveConfig = &config.Config{WorkspaceDir: "../.."}
-}
+// testDir points git commands at the repo root (two levels up from this package).
+const testDir = "../.."
 
 func mustHaveGit(t *testing.T) {
 	t.Helper()
-	out, err := RunGitCommand("rev-parse", "--git-dir")
+	out, err := RunGitCommand(testDir, "rev-parse", "--git-dir")
 	if err != nil || strings.TrimSpace(out) == "" {
 		t.Skip("not a git repository")
 	}
@@ -21,7 +18,7 @@ func mustHaveGit(t *testing.T) {
 
 func TestBlameNonEmpty(t *testing.T) {
 	mustHaveGit(t)
-	lines, err := Blame("go.mod")
+	lines, err := Blame(testDir, "go.mod")
 	if err != nil {
 		// Some environments may not have file content for blame; allow.
 		t.Skipf("Blame failed: %v", err)
@@ -44,7 +41,7 @@ func TestBlameNonEmpty(t *testing.T) {
 
 func TestFileHistoryNonEmpty(t *testing.T) {
 	mustHaveGit(t)
-	commits, err := Log("go.mod")
+	commits, err := Log(testDir, "go.mod")
 	if err != nil {
 		t.Skipf("Log failed: %v", err)
 	}

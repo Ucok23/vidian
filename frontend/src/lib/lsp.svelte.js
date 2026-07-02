@@ -3,6 +3,7 @@ import { store } from './store.svelte.js';
 
 let ws = null;
 let activeLang = null; // 'go', 'python', 'typescript', 'rust'
+let activeWs = null;   // workspace ID the socket is scoped to
 let requestId = 0;
 const pendingRequests = new Map();
 let isInitialized = false;
@@ -35,8 +36,10 @@ export function initLsp(workspacePath, filename) {
     return;
   }
 
-  // If already connected for the same language, do nothing
-  if (ws && activeLang === lspLang && ws.readyState === WebSocket.OPEN) {
+  // If already connected for the same language AND workspace, do nothing.
+  // A workspace switch must force a reconnect so the server scopes the language
+  // server to the new directory.
+  if (ws && activeLang === lspLang && activeWs === store.currentWorkspaceId && ws.readyState === WebSocket.OPEN) {
     return;
   }
 
@@ -48,8 +51,10 @@ export function initLsp(workspacePath, filename) {
   }
 
   activeLang = lspLang;
+  activeWs = store.currentWorkspaceId;
   const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
-  const url = `${protocol}//${window.location.host}/api/lsp?lang=${lspLang}`;
+  const wsParam = store.currentWorkspaceId ? `&ws=${encodeURIComponent(store.currentWorkspaceId)}` : '';
+  const url = `${protocol}//${window.location.host}/api/lsp?lang=${lspLang}${wsParam}`;
   ws = new WebSocket(url);
 
   ws.onmessage = (event) => {

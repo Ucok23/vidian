@@ -9,6 +9,19 @@
 <div class="explorer-panel">
   <div class="panel-header">
     <span>EXPLORER</span>
+    {#if store.workspaces.length > 1}
+      <select
+        class="ws-switcher"
+        value={store.currentWorkspaceId}
+        onfocus={() => store.loadWorkspaces()}
+        onchange={(e) => store.switchWorkspace(e.currentTarget.value)}
+        title="Switch workspace"
+      >
+        {#each store.workspaces as ws (ws.id)}
+          <option value={ws.id}>{ws.name}</option>
+        {/each}
+      </select>
+    {/if}
   </div>
 
   <div class="workspace-section">
@@ -48,12 +61,31 @@
     padding: 0 16px;
     display: flex;
     align-items: center;
+    justify-content: space-between;
+    gap: 8px;
     font-size: 11px;
     font-weight: 600;
     letter-spacing: 0.8px;
     color: #8e8e93;
     border-bottom: 1px solid #2d2d34;
     text-transform: uppercase;
+  }
+
+  .ws-switcher {
+    max-width: 55%;
+    background: #2d2d34;
+    color: #e3e3e6;
+    border: 1px solid #3a3a42;
+    border-radius: 4px;
+    padding: 2px 4px;
+    font-size: 11px;
+    text-transform: none;
+    letter-spacing: normal;
+    cursor: pointer;
+  }
+
+  .ws-switcher:hover {
+    border-color: #4a4a52;
   }
 
   .workspace-section {

@@ -1,6 +1,7 @@
 <script>
   import { onMount } from 'svelte';
   import Icon from './Icon.svelte';
+  import { store } from './store.svelte.js';
 
   let { path = '' } = $props();
 
@@ -21,7 +22,7 @@
 
   async function loadTables() {
     try {
-      const res = await fetch(`/api/sqlite/tables?path=${encodeURIComponent(path)}`);
+      const res = await fetch(store.apiUrl(`/api/sqlite/tables?path=${encodeURIComponent(path)}`));
       if (!res.ok) throw new Error(await res.text());
       tables = await res.json();
       if (tables && tables.length > 0) {
@@ -44,7 +45,7 @@
     error = null;
     try {
       const res = await fetch(
-        `/api/sqlite/query?path=${encodeURIComponent(path)}&table=${encodeURIComponent(activeTable)}&limit=${PAGE_SIZE}&offset=${currentOffset}`
+        store.apiUrl(`/api/sqlite/query?path=${encodeURIComponent(path)}&table=${encodeURIComponent(activeTable)}&limit=${PAGE_SIZE}&offset=${currentOffset}`)
       );
       if (!res.ok) throw new Error(await res.text());
       const data = await res.json();

@@ -7,8 +7,6 @@ import (
 	"strconv"
 	"strings"
 	"time"
-
-	"github.com/Ucok23/vidian/internal/config"
 )
 
 type GitInfo struct {
@@ -39,9 +37,11 @@ type CommitInfo struct {
 	Summary  string `json:"summary"`
 }
 
-func RunGitCommand(args ...string) (string, error) {
+// RunGitCommand runs git in the given working directory. Every git operation is
+// scoped to a workspace directory, so dir is always supplied by the caller.
+func RunGitCommand(dir string, args ...string) (string, error) {
 	cmd := exec.Command("git", args...)
-	cmd.Dir = config.ActiveConfig.WorkspaceDir
+	cmd.Dir = dir
 	out, err := cmd.CombinedOutput()
 	if err != nil {
 		return "", fmt.Errorf("%s: %s", err, string(out))
@@ -49,27 +49,27 @@ func RunGitCommand(args ...string) (string, error) {
 	return strings.TrimSpace(string(out)), nil
 }
 
-func CheckIsGit() bool {
+func CheckIsGit(dir string) bool {
 	_, err := exec.LookPath("git")
 	if err != nil {
 		return false
 	}
 	cmd := exec.Command("git", "rev-parse", "--is-inside-work-tree")
-	cmd.Dir = config.ActiveConfig.WorkspaceDir
+	cmd.Dir = dir
 	return cmd.Run() == nil
 }
 
-func GetBranches() (GitInfo, error) {
-	if !CheckIsGit() {
+func GetBranches(dir string) (GitInfo, error) {
+	if !CheckIsGit(dir) {
 		return GitInfo{IsGit: false}, nil
 	}
 
-	currentBranch, err := RunGitCommand("rev-parse", "--abbrev-ref", "HEAD")
+	currentBranch, err := RunGitCommand(dir, "rev-parse", "--abbrev-ref", "HEAD")
 	if err != nil {
 		currentBranch = "HEAD"
 	}
 
-	branchesOut, err := RunGitCommand("branch", "-a", "--format=%(refname:short)")
+	branchesOut, err := RunGitCommand(dir, "branch", "-a", "--format=%(refname:short)")
 	branches := []string{}
 	if err == nil {
 		lines := strings.Split(branchesOut, "\n")
@@ -96,9 +96,9 @@ func GetBranches() (GitInfo, error) {
 	}, nil
 }
 
-func Checkout(branch string) error {
+func Checkout(dir, branch string) error {
 	// Validate branch name
-	branchesOut, err := RunGitCommand("branch", "-a", "--format=%(refname:short)")
+	branchesOut, err := RunGitCommand(dir, "branch", "-a", "--format=%(refname:short)")
 	if err != nil {
 		return fmt.Errorf("failed to fetch branches: %w", err)
 	}
@@ -120,12 +120,12 @@ func Checkout(branch string) error {
 		return fmt.Errorf("invalid branch name: %s", branch)
 	}
 
-	_, err = RunGitCommand("checkout", branch)
+	_, err = RunGitCommand(dir, "checkout", branch)
 	return err
 }
 
-func GetChanges() ([]GitChange, error) {
-	statusOut, err := RunGitCommand("status", "--porcelain")
+func GetChanges(dir string) ([]GitChange, error) {
+	statusOut, err := RunGitCommand(dir, "status", "--porcelain")
 	if err != nil {
 		return []GitChange{}, err
 	}
@@ -150,22 +150,34 @@ func GetChanges() ([]GitChange, error) {
 	return changes, nil
 }
 
-func Show(path string, commit string) (string, error) {
+func Show(dir, path string, commit string) (string, error) {
 	if commit == "" {
 		commit = "HEAD"
 	}
-	return RunGitCommand("show", commit+":"+path)
+	return RunGitCommand(dir, "show", commit+":"+path)
 }
 
-func Blame(path string) ([]BlameLine, error) {
-	blameOut, err := RunGitCommand("blame", "--porcelain", "--", path)
+func Blame(dir, path string) ([]BlameLine, error) {
+	blameOut, err := RunGitCommand(dir, "blame", "--porcelain", "--", path)
 	if err != nil {
 		return []BlameLine{}, err
 	}
+	return parseBlame(blameOut), nil
+}
 
+func BlameAtCommit(dir, path, commit string) ([]BlameLine, error) {
+	blameOut, err := RunGitCommand(dir, "blame", "--porcelain", commit, "--", path)
+	if err != nil {
+		return []BlameLine{}, err
+	}
+	return parseBlame(blameOut), nil
+}
+
+// parseBlame parses `git blame --porcelain` output into per-line blame records.
+func parseBlame(blameOut string) []BlameLine {
 	var blameLines []BlameLine = []BlameLine{}
 	lines := strings.Split(blameOut, "\n")
-	
+
 	commits := make(map[string]map[string]string)
 	var currentCommit string
 	var finalLineNum int
@@ -221,25 +233,30 @@ func Blame(path string) ([]BlameLine, error) {
 		}
 	}
 
-	return blameLines, nil
+	return blameLines
 }
 
-func Log(path string) ([]CommitInfo, error) {
+func Log(dir, path string) ([]CommitInfo, error) {
 	formatStr := "%H|%an|%ae|%ad|%ar|%s"
 	var logOut string
 	var err error
 	if path != "" {
-		logOut, err = RunGitCommand("log", "-n", "50", "--follow", "--format="+formatStr, "--", path)
+		logOut, err = RunGitCommand(dir, "log", "-n", "50", "--follow", "--format="+formatStr, "--", path)
 	} else {
-		logOut, err = RunGitCommand("log", "-n", "50", "--format="+formatStr)
+		logOut, err = RunGitCommand(dir, "log", "-n", "50", "--format="+formatStr)
 	}
 
 	if err != nil {
 		return []CommitInfo{}, err
 	}
 
+	return parseCommitList(logOut), nil
+}
+
+// parseCommitList parses newline-delimited "%H|%an|%ae|%ad|%ar|%s" rows.
+func parseCommitList(out string) []CommitInfo {
 	commits := []CommitInfo{}
-	lines := strings.Split(logOut, "\n")
+	lines := strings.Split(out, "\n")
 	for _, line := range lines {
 		line = strings.TrimSpace(line)
 		if line == "" {
@@ -258,12 +275,11 @@ func Log(path string) ([]CommitInfo, error) {
 			Summary:  parts[5],
 		})
 	}
-
-	return commits, nil
+	return commits
 }
 
-func GetCommitFiles(commit string) ([]GitChange, error) {
-	out, err := RunGitCommand("diff-tree", "--no-commit-id", "--name-status", "-r", commit)
+func GetCommitFiles(dir, commit string) ([]GitChange, error) {
+	out, err := RunGitCommand(dir, "diff-tree", "--no-commit-id", "--name-status", "-r", commit)
 	if err != nil {
 		return []GitChange{}, err
 	}
@@ -307,9 +323,9 @@ type CommitDetails struct {
 
 // GetCommitStats sums added/deleted line counts across all files in a commit
 // via `git diff-tree --numstat`. Binary files (reported as "-") are skipped.
-func GetCommitStats(commit string) CommitStats {
+func GetCommitStats(dir, commit string) CommitStats {
 	stats := CommitStats{}
-	out, err := RunGitCommand("diff-tree", "--no-commit-id", "--numstat", "-r", commit)
+	out, err := RunGitCommand(dir, "diff-tree", "--no-commit-id", "--numstat", "-r", commit)
 	if err != nil {
 		return stats
 	}
@@ -332,11 +348,11 @@ func GetCommitStats(commit string) CommitStats {
 	return stats
 }
 
-func GetCommitDetails(hash string) (CommitDetails, error) {
+func GetCommitDetails(dir, hash string) (CommitDetails, error) {
 	// 1. Get info formatted
 	// Use %H (hash), %an (author name), %ae (author email), %ad (author date), %ar (relative date), %s (subject), %b (body)
 	formatStr := "%H|%an|%ae|%ad|%ar|%s|%b"
-	out, err := RunGitCommand("show", "-s", "--format="+formatStr, hash)
+	out, err := RunGitCommand(dir, "show", "-s", "--format="+formatStr, hash)
 	if err != nil {
 		return CommitDetails{}, err
 	}
@@ -352,13 +368,13 @@ func GetCommitDetails(hash string) (CommitDetails, error) {
 	}
 
 	// 2. Get files changed
-	files, err := GetCommitFiles(hash)
+	files, err := GetCommitFiles(dir, hash)
 	if err != nil {
 		files = []GitChange{}
 	}
 
 	// 3. Get line stats (insertions/deletions)
-	stats := GetCommitStats(hash)
+	stats := GetCommitStats(dir, hash)
 
 	return CommitDetails{
 		Hash:     parts[0],
@@ -393,8 +409,8 @@ type Contributor struct {
 	Commits int    `json:"commits"`
 }
 
-func GetStashes() ([]Stash, error) {
-	out, err := RunGitCommand("stash", "list", "--format=%gd|||%H|||%gs")
+func GetStashes(dir string) ([]Stash, error) {
+	out, err := RunGitCommand(dir, "stash", "list", "--format=%gd|||%H|||%gs")
 	if err != nil {
 		return []Stash{}, err
 	}
@@ -429,8 +445,8 @@ func GetStashes() ([]Stash, error) {
 	return stashes, nil
 }
 
-func GetTags() ([]Tag, error) {
-	out, err := RunGitCommand("tag", "-l", "--sort=-creatordate",
+func GetTags(dir string) ([]Tag, error) {
+	out, err := RunGitCommand(dir, "tag", "-l", "--sort=-creatordate",
 		"--format=%(refname:short)|||%(objectname:short)|||%(creatordate:short)|||%(subject)")
 	if err != nil {
 		return []Tag{}, err
@@ -457,8 +473,8 @@ func GetTags() ([]Tag, error) {
 	return tags, nil
 }
 
-func GetContributors() ([]Contributor, error) {
-	out, err := RunGitCommand("shortlog", "-sne", "HEAD")
+func GetContributors(dir string) ([]Contributor, error) {
+	out, err := RunGitCommand(dir, "shortlog", "-sne", "HEAD")
 	if err != nil {
 		return []Contributor{}, err
 	}
@@ -499,7 +515,7 @@ func GetContributors() ([]Contributor, error) {
 	return contributors, nil
 }
 
-func SearchCommits(q, author, file string) ([]CommitInfo, error) {
+func SearchCommits(dir, q, author, file string) ([]CommitInfo, error) {
 	args := []string{"log", "-n", "100", "--format=%H|%an|%ae|%ad|%ar|%s"}
 	if q != "" {
 		args = append(args, "--grep="+q, "-i")
@@ -511,62 +527,22 @@ func SearchCommits(q, author, file string) ([]CommitInfo, error) {
 		args = append(args, "--", file)
 	}
 
-	out, err := RunGitCommand(args...)
+	out, err := RunGitCommand(dir, args...)
 	if err != nil {
 		return []CommitInfo{}, err
 	}
 
-	commits := []CommitInfo{}
-	lines := strings.Split(out, "\n")
-	for _, line := range lines {
-		line = strings.TrimSpace(line)
-		if line == "" {
-			continue
-		}
-		parts := strings.SplitN(line, "|", 6)
-		if len(parts) < 6 {
-			continue
-		}
-		commits = append(commits, CommitInfo{
-			Hash:     parts[0],
-			Author:   parts[1],
-			Email:    parts[2],
-			Date:     parts[3],
-			Relative: parts[4],
-			Summary:  parts[5],
-		})
-	}
-	return commits, nil
+	return parseCommitList(out), nil
 }
 
-func GetLineHistory(path string, startLine, endLine int) ([]CommitInfo, error) {
+func GetLineHistory(dir, path string, startLine, endLine int) ([]CommitInfo, error) {
 	lArg := fmt.Sprintf("-L%d,%d:%s", startLine, endLine, path)
-	out, err := RunGitCommand("log", "--no-patch", "--format=%H|%an|%ae|%ad|%ar|%s", lArg)
+	out, err := RunGitCommand(dir, "log", "--no-patch", "--format=%H|%an|%ae|%ad|%ar|%s", lArg)
 	if err != nil {
 		return []CommitInfo{}, err
 	}
 
-	commits := []CommitInfo{}
-	lines := strings.Split(out, "\n")
-	for _, line := range lines {
-		line = strings.TrimSpace(line)
-		if line == "" {
-			continue
-		}
-		parts := strings.SplitN(line, "|", 6)
-		if len(parts) < 6 {
-			continue
-		}
-		commits = append(commits, CommitInfo{
-			Hash:     parts[0],
-			Author:   parts[1],
-			Email:    parts[2],
-			Date:     parts[3],
-			Relative: parts[4],
-			Summary:  parts[5],
-		})
-	}
-	return commits, nil
+	return parseCommitList(out), nil
 }
 
 // GraphCommit is a single commit with the parent links needed to lay out a
@@ -582,10 +558,10 @@ type GraphCommit struct {
 
 // GetCommitGraphData returns structured commit data (across all refs, in
 // topological/date order) for rendering a lane-based commit graph.
-func GetCommitGraphData() ([]GraphCommit, error) {
+func GetCommitGraphData(dir string) ([]GraphCommit, error) {
 	const sep = "\x1f"
 	format := "%H" + sep + "%P" + sep + "%an" + sep + "%aI" + sep + "%D" + sep + "%s"
-	out, err := RunGitCommand("log", "--all", "--date-order", "--pretty=format:"+format, "-n", "300")
+	out, err := RunGitCommand(dir, "log", "--all", "--date-order", "--pretty=format:"+format, "-n", "300")
 	if err != nil {
 		return nil, err
 	}
@@ -615,75 +591,8 @@ func GetCommitGraphData() ([]GraphCommit, error) {
 	return commits, nil
 }
 
-func BlameAtCommit(path, commit string) ([]BlameLine, error) {
-	blameOut, err := RunGitCommand("blame", "--porcelain", commit, "--", path)
-	if err != nil {
-		return []BlameLine{}, err
-	}
-
-	var blameLines []BlameLine = []BlameLine{}
-	lines := strings.Split(blameOut, "\n")
-
-	commits := make(map[string]map[string]string)
-	var currentCommit string
-	var finalLineNum int
-
-	for i := 0; i < len(lines); i++ {
-		line := lines[i]
-		if line == "" {
-			continue
-		}
-
-		if strings.HasPrefix(line, "\t") {
-			attr := commits[currentCommit]
-			blameLines = append(blameLines, BlameLine{
-				Line:    finalLineNum,
-				Commit:  currentCommit,
-				Author:  attr["author"],
-				Date:    attr["date"],
-				Summary: attr["summary"],
-			})
-			continue
-		}
-
-		parts := strings.SplitN(line, " ", 2)
-		if len(parts) < 2 {
-			continue
-		}
-		key := parts[0]
-		val := parts[1]
-
-		if len(key) == 40 {
-			currentCommit = key
-			headerParts := strings.Split(val, " ")
-			if len(headerParts) >= 2 {
-				fmt.Sscanf(headerParts[1], "%d", &finalLineNum)
-			}
-			if _, exists := commits[currentCommit]; !exists {
-				commits[currentCommit] = make(map[string]string)
-			}
-			continue
-		}
-
-		if currentCommit != "" {
-			if key == "author" {
-				commits[currentCommit]["author"] = val
-			} else if key == "author-time" {
-				var sec int64
-				fmt.Sscanf(val, "%d", &sec)
-				t := time.Unix(sec, 0)
-				commits[currentCommit]["date"] = t.Format("2006-01-02")
-			} else if key == "summary" {
-				commits[currentCommit]["summary"] = val
-			}
-		}
-	}
-
-	return blameLines, nil
-}
-
-func CompareRefs(ref1, ref2 string) ([]GitChange, error) {
-	out, err := RunGitCommand("diff", "--name-status", ref1+"..."+ref2)
+func CompareRefs(dir, ref1, ref2 string) ([]GitChange, error) {
+	out, err := RunGitCommand(dir, "diff", "--name-status", ref1+"..."+ref2)
 	if err != nil {
 		return []GitChange{}, err
 	}
@@ -707,12 +616,12 @@ func CompareRefs(ref1, ref2 string) ([]GitChange, error) {
 	return changes, nil
 }
 
-func GetDiffStat(ref1, ref2 string) (string, error) {
-	return RunGitCommand("diff", "--stat", ref1+"..."+ref2)
+func GetDiffStat(dir, ref1, ref2 string) (string, error) {
+	return RunGitCommand(dir, "diff", "--stat", ref1+"..."+ref2)
 }
 
-func GetActivityDates() ([]string, error) {
-	out, err := RunGitCommand("log", "--all", "--format=%ad", "--date=short", "--since=1.year.ago")
+func GetActivityDates(dir string) ([]string, error) {
+	out, err := RunGitCommand(dir, "log", "--all", "--format=%ad", "--date=short", "--since=1.year.ago")
 	if err != nil {
 		return []string{}, err
 	}
@@ -731,8 +640,8 @@ type HotFile struct {
 	Commits int    `json:"commits"`
 }
 
-func GetHotFiles(n int) ([]HotFile, error) {
-	out, err := RunGitCommand("log", "--all", "--since=1.year.ago", "--pretty=format:", "--name-only")
+func GetHotFiles(dir string, n int) ([]HotFile, error) {
+	out, err := RunGitCommand(dir, "log", "--all", "--since=1.year.ago", "--pretty=format:", "--name-only")
 	if err != nil {
 		return []HotFile{}, err
 	}
@@ -763,4 +672,3 @@ func GetHotFiles(n int) ([]HotFile, error) {
 	}
 	return hotFiles, nil
 }
-

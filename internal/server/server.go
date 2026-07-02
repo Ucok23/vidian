@@ -33,11 +33,6 @@ type FileInfo struct {
 	Size  int64  `json:"size"`
 }
 
-type WorkspaceInfo struct {
-	Name string `json:"name"`
-	Path string `json:"path"`
-}
-
 type SearchResult struct {
 	Path        string `json:"path"`
 	LineNumber  int    `json:"lineNumber"`
@@ -50,12 +45,37 @@ func setupCORS(w http.ResponseWriter, req *http.Request) {
 	w.Header().Set("Access-Control-Allow-Headers", "Content-Type")
 }
 
+// workspaceFrom resolves the ?ws=<id> query parameter to a registered workspace.
+func workspaceFrom(r *http.Request) (*config.Workspace, error) {
+	id := r.URL.Query().Get("ws")
+	if id == "" {
+		return nil, fmt.Errorf("missing workspace parameter")
+	}
+	ws := config.ActiveConfig.Get(id)
+	if ws == nil {
+		return nil, fmt.Errorf("unknown workspace: %s", id)
+	}
+	return ws, nil
+}
+
+// resolveWorkspace writes an error response and returns nil if the request does
+// not name a valid workspace.
+func resolveWorkspace(w http.ResponseWriter, r *http.Request) *config.Workspace {
+	ws, err := workspaceFrom(r)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return nil
+	}
+	return ws
+}
+
 // Start registers routes and starts the HTTP listener
 func Start(cfg *config.Config, embeddedFiles fs.FS) {
 	config.ActiveConfig = cfg
 
 	// Register API endpoints
-	http.HandleFunc("/api/workspace", handleWorkspace)
+	http.HandleFunc("/api/ping", handlePing)
+	http.HandleFunc("/api/workspaces", handleWorkspaces)
 	http.HandleFunc("/api/dir", handleDir)
 	http.HandleFunc("/api/file", handleFile)
 	http.HandleFunc("/api/search", handleSearch)
@@ -128,9 +148,7 @@ func Start(cfg *config.Config, embeddedFiles fs.FS) {
 		log.Fatalf("Failed to bind port %d: %v", cfg.Port, err)
 	}
 
-	url := fmt.Sprintf("http://localhost:%d", cfg.Port)
-	log.Printf("Server listening on %s", url)
-	go openBrowser(url)
+	log.Printf("Server listening on http://localhost:%d", cfg.Port)
 
 	log.Fatal(http.Serve(ln, nil))
 }
@@ -150,17 +168,56 @@ func openBrowser(url string) {
 	}
 }
 
-func handleWorkspace(w http.ResponseWriter, r *http.Request) {
+// OpenBrowser opens the given URL in the user's default browser.
+func OpenBrowser(url string) { openBrowser(url) }
+
+// handlePing lets a launching binary confirm that a live Vidian instance is
+// already serving this port before it acts as a client instead of a server.
+func handlePing(w http.ResponseWriter, r *http.Request) {
 	setupCORS(w, r)
 	if r.Method == "OPTIONS" {
 		return
 	}
-	info := WorkspaceInfo{
-		Name: filepath.Base(config.ActiveConfig.WorkspaceDir),
-		Path: config.ActiveConfig.WorkspaceDir,
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(map[string]interface{}{
+		"app":  "vidian",
+		"port": config.ActiveConfig.Port,
+	})
+}
+
+// handleWorkspaces lists registered workspaces (GET) or registers a new one
+// (POST {"path": "..."}), returning the resulting workspace.
+func handleWorkspaces(w http.ResponseWriter, r *http.Request) {
+	setupCORS(w, r)
+	if r.Method == "OPTIONS" {
+		return
 	}
 	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(info)
+
+	if r.Method == "POST" {
+		var body struct {
+			Path string `json:"path"`
+		}
+		if err := json.NewDecoder(r.Body).Decode(&body); err != nil || body.Path == "" {
+			http.Error(w, "missing or invalid path", http.StatusBadRequest)
+			return
+		}
+		abs, err := filepath.Abs(body.Path)
+		if err != nil {
+			http.Error(w, "invalid path", http.StatusBadRequest)
+			return
+		}
+		info, err := os.Stat(abs)
+		if err != nil || !info.IsDir() {
+			http.Error(w, "path is not an existing directory", http.StatusBadRequest)
+			return
+		}
+		ws := config.ActiveConfig.Add(abs)
+		json.NewEncoder(w).Encode(ws)
+		return
+	}
+
+	json.NewEncoder(w).Encode(config.ActiveConfig.List())
 }
 
 func handleDir(w http.ResponseWriter, r *http.Request) {
@@ -169,8 +226,13 @@ func handleDir(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	ws := resolveWorkspace(w, r)
+	if ws == nil {
+		return
+	}
+
 	relPath := r.URL.Query().Get("path")
-	safePath, err := config.GetSafePath(relPath)
+	safePath, err := config.GetSafePath(ws, relPath)
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusForbidden)
 		return
@@ -216,8 +278,13 @@ func handleFile(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	ws := resolveWorkspace(w, r)
+	if ws == nil {
+		return
+	}
+
 	relPath := r.URL.Query().Get("path")
-	safePath, err := config.GetSafePath(relPath)
+	safePath, err := config.GetSafePath(ws, relPath)
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusForbidden)
 		return
@@ -316,6 +383,11 @@ func handleSearch(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	ws := resolveWorkspace(w, r)
+	if ws == nil {
+		return
+	}
+
 	query := r.URL.Query().Get("q")
 	if query == "" {
 		w.Header().Set("Content-Type", "application/json")
@@ -327,7 +399,7 @@ func handleSearch(w http.ResponseWriter, r *http.Request) {
 	maxResults := 200
 	count := 0
 
-	err := filepath.Walk(config.ActiveConfig.WorkspaceDir, func(path string, info os.FileInfo, err error) error {
+	err := filepath.Walk(ws.Path, func(path string, info os.FileInfo, err error) error {
 		if err != nil {
 			return nil
 		}
@@ -359,7 +431,7 @@ func handleSearch(w http.ResponseWriter, r *http.Request) {
 		}
 
 		lines := strings.Split(string(content), "\n")
-		relPath, _ := filepath.Rel(config.ActiveConfig.WorkspaceDir, path)
+		relPath, _ := filepath.Rel(ws.Path, path)
 		relPath = filepath.ToSlash(relPath)
 		pathMatched := strings.Contains(strings.ToLower(relPath), strings.ToLower(query))
 
@@ -413,11 +485,16 @@ func handleFiles(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	ws := resolveWorkspace(w, r)
+	if ws == nil {
+		return
+	}
+
 	var files []string = []string{}
 	maxFiles := 1000
 	count := 0
 
-	err := filepath.Walk(config.ActiveConfig.WorkspaceDir, func(path string, info os.FileInfo, err error) error {
+	err := filepath.Walk(ws.Path, func(path string, info os.FileInfo, err error) error {
 		if err != nil {
 			return nil
 		}
@@ -433,7 +510,7 @@ func handleFiles(w http.ResponseWriter, r *http.Request) {
 			return nil
 		}
 
-		relPath, err := filepath.Rel(config.ActiveConfig.WorkspaceDir, path)
+		relPath, err := filepath.Rel(ws.Path, path)
 		if err != nil {
 			return nil
 		}
@@ -457,9 +534,13 @@ func handleGitBranches(w http.ResponseWriter, r *http.Request) {
 	if r.Method == "OPTIONS" {
 		return
 	}
+	ws := resolveWorkspace(w, r)
+	if ws == nil {
+		return
+	}
 	w.Header().Set("Content-Type", "application/json")
 
-	info, err := git.GetBranches()
+	info, err := git.GetBranches(ws.Path)
 	if err != nil {
 		json.NewEncoder(w).Encode(git.GitInfo{IsGit: false})
 		return
@@ -472,6 +553,10 @@ func handleGitCheckout(w http.ResponseWriter, r *http.Request) {
 	if r.Method == "OPTIONS" {
 		return
 	}
+	ws := resolveWorkspace(w, r)
+	if ws == nil {
+		return
+	}
 
 	branch := r.URL.Query().Get("branch")
 	if branch == "" {
@@ -479,7 +564,7 @@ func handleGitCheckout(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	err := git.Checkout(branch)
+	err := git.Checkout(ws.Path, branch)
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
@@ -494,9 +579,13 @@ func handleGitChanges(w http.ResponseWriter, r *http.Request) {
 	if r.Method == "OPTIONS" {
 		return
 	}
+	ws := resolveWorkspace(w, r)
+	if ws == nil {
+		return
+	}
 	w.Header().Set("Content-Type", "application/json")
 
-	changes, err := git.GetChanges()
+	changes, err := git.GetChanges(ws.Path)
 	if err != nil {
 		json.NewEncoder(w).Encode([]git.GitChange{})
 		return
@@ -509,6 +598,10 @@ func handleGitShow(w http.ResponseWriter, r *http.Request) {
 	if r.Method == "OPTIONS" {
 		return
 	}
+	ws := resolveWorkspace(w, r)
+	if ws == nil {
+		return
+	}
 
 	path := r.URL.Query().Get("path")
 	commit := r.URL.Query().Get("commit")
@@ -517,7 +610,7 @@ func handleGitShow(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	out, err := git.Show(path, commit)
+	out, err := git.Show(ws.Path, path, commit)
 	if err != nil {
 		http.Error(w, "File not found in git: "+err.Error(), http.StatusNotFound)
 		return
@@ -532,6 +625,10 @@ func handleGitBlame(w http.ResponseWriter, r *http.Request) {
 	if r.Method == "OPTIONS" {
 		return
 	}
+	ws := resolveWorkspace(w, r)
+	if ws == nil {
+		return
+	}
 
 	path := r.URL.Query().Get("path")
 	if path == "" {
@@ -540,7 +637,7 @@ func handleGitBlame(w http.ResponseWriter, r *http.Request) {
 	}
 
 	w.Header().Set("Content-Type", "application/json")
-	blameLines, err := git.Blame(path)
+	blameLines, err := git.Blame(ws.Path, path)
 	if err != nil {
 		json.NewEncoder(w).Encode([]git.BlameLine{})
 		return
@@ -553,11 +650,15 @@ func handleGitLog(w http.ResponseWriter, r *http.Request) {
 	if r.Method == "OPTIONS" {
 		return
 	}
+	ws := resolveWorkspace(w, r)
+	if ws == nil {
+		return
+	}
 
 	path := r.URL.Query().Get("path")
 	w.Header().Set("Content-Type", "application/json")
 
-	commits, err := git.Log(path)
+	commits, err := git.Log(ws.Path, path)
 	if err != nil {
 		json.NewEncoder(w).Encode([]git.CommitInfo{})
 		return
@@ -570,6 +671,10 @@ func handleGitCommitFiles(w http.ResponseWriter, r *http.Request) {
 	if r.Method == "OPTIONS" {
 		return
 	}
+	ws := resolveWorkspace(w, r)
+	if ws == nil {
+		return
+	}
 
 	commit := r.URL.Query().Get("commit")
 	if commit == "" {
@@ -578,7 +683,7 @@ func handleGitCommitFiles(w http.ResponseWriter, r *http.Request) {
 	}
 
 	w.Header().Set("Content-Type", "application/json")
-	changes, err := git.GetCommitFiles(commit)
+	changes, err := git.GetCommitFiles(ws.Path, commit)
 	if err != nil {
 		json.NewEncoder(w).Encode([]git.GitChange{})
 		return
@@ -591,6 +696,10 @@ func handleGitCommit(w http.ResponseWriter, r *http.Request) {
 	if r.Method == "OPTIONS" {
 		return
 	}
+	ws := resolveWorkspace(w, r)
+	if ws == nil {
+		return
+	}
 
 	hash := r.URL.Query().Get("hash")
 	if hash == "" {
@@ -599,7 +708,7 @@ func handleGitCommit(w http.ResponseWriter, r *http.Request) {
 	}
 
 	w.Header().Set("Content-Type", "application/json")
-	details, err := git.GetCommitDetails(hash)
+	details, err := git.GetCommitDetails(ws.Path, hash)
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
@@ -612,8 +721,12 @@ func handleGitStashes(w http.ResponseWriter, r *http.Request) {
 	if r.Method == "OPTIONS" {
 		return
 	}
+	ws := resolveWorkspace(w, r)
+	if ws == nil {
+		return
+	}
 	w.Header().Set("Content-Type", "application/json")
-	result, err := git.GetStashes()
+	result, err := git.GetStashes(ws.Path)
 	if err != nil {
 		json.NewEncoder(w).Encode([]git.Stash{})
 		return
@@ -626,8 +739,12 @@ func handleGitTags(w http.ResponseWriter, r *http.Request) {
 	if r.Method == "OPTIONS" {
 		return
 	}
+	ws := resolveWorkspace(w, r)
+	if ws == nil {
+		return
+	}
 	w.Header().Set("Content-Type", "application/json")
-	result, err := git.GetTags()
+	result, err := git.GetTags(ws.Path)
 	if err != nil {
 		json.NewEncoder(w).Encode([]git.Tag{})
 		return
@@ -640,8 +757,12 @@ func handleGitContributors(w http.ResponseWriter, r *http.Request) {
 	if r.Method == "OPTIONS" {
 		return
 	}
+	ws := resolveWorkspace(w, r)
+	if ws == nil {
+		return
+	}
 	w.Header().Set("Content-Type", "application/json")
-	result, err := git.GetContributors()
+	result, err := git.GetContributors(ws.Path)
 	if err != nil {
 		json.NewEncoder(w).Encode([]git.Contributor{})
 		return
@@ -654,11 +775,15 @@ func handleGitSearch(w http.ResponseWriter, r *http.Request) {
 	if r.Method == "OPTIONS" {
 		return
 	}
+	ws := resolveWorkspace(w, r)
+	if ws == nil {
+		return
+	}
 	w.Header().Set("Content-Type", "application/json")
 	q := r.URL.Query().Get("q")
 	author := r.URL.Query().Get("author")
 	file := r.URL.Query().Get("file")
-	result, err := git.SearchCommits(q, author, file)
+	result, err := git.SearchCommits(ws.Path, q, author, file)
 	if err != nil {
 		json.NewEncoder(w).Encode([]git.CommitInfo{})
 		return
@@ -671,6 +796,10 @@ func handleGitLineHistory(w http.ResponseWriter, r *http.Request) {
 	if r.Method == "OPTIONS" {
 		return
 	}
+	ws := resolveWorkspace(w, r)
+	if ws == nil {
+		return
+	}
 	w.Header().Set("Content-Type", "application/json")
 	path := r.URL.Query().Get("path")
 	if path == "" {
@@ -679,7 +808,7 @@ func handleGitLineHistory(w http.ResponseWriter, r *http.Request) {
 	}
 	start, _ := strconv.Atoi(r.URL.Query().Get("start"))
 	end, _ := strconv.Atoi(r.URL.Query().Get("end"))
-	result, err := git.GetLineHistory(path, start, end)
+	result, err := git.GetLineHistory(ws.Path, path, start, end)
 	if err != nil {
 		json.NewEncoder(w).Encode([]git.CommitInfo{})
 		return
@@ -692,8 +821,12 @@ func handleGitGraph(w http.ResponseWriter, r *http.Request) {
 	if r.Method == "OPTIONS" {
 		return
 	}
+	ws := resolveWorkspace(w, r)
+	if ws == nil {
+		return
+	}
 	w.Header().Set("Content-Type", "application/json")
-	result, err := git.GetCommitGraphData()
+	result, err := git.GetCommitGraphData(ws.Path)
 	if err != nil {
 		json.NewEncoder(w).Encode([]git.GraphCommit{})
 		return
@@ -706,6 +839,10 @@ func handleGitBlameAt(w http.ResponseWriter, r *http.Request) {
 	if r.Method == "OPTIONS" {
 		return
 	}
+	ws := resolveWorkspace(w, r)
+	if ws == nil {
+		return
+	}
 	w.Header().Set("Content-Type", "application/json")
 	path := r.URL.Query().Get("path")
 	commit := r.URL.Query().Get("commit")
@@ -713,7 +850,7 @@ func handleGitBlameAt(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "Missing path or commit parameter", http.StatusBadRequest)
 		return
 	}
-	result, err := git.BlameAtCommit(path, commit)
+	result, err := git.BlameAtCommit(ws.Path, path, commit)
 	if err != nil {
 		json.NewEncoder(w).Encode([]git.BlameLine{})
 		return
@@ -726,6 +863,10 @@ func handleGitCompare(w http.ResponseWriter, r *http.Request) {
 	if r.Method == "OPTIONS" {
 		return
 	}
+	ws := resolveWorkspace(w, r)
+	if ws == nil {
+		return
+	}
 	w.Header().Set("Content-Type", "application/json")
 	ref1 := r.URL.Query().Get("ref1")
 	ref2 := r.URL.Query().Get("ref2")
@@ -733,11 +874,11 @@ func handleGitCompare(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "Missing ref1 or ref2 parameter", http.StatusBadRequest)
 		return
 	}
-	files, err := git.CompareRefs(ref1, ref2)
+	files, err := git.CompareRefs(ws.Path, ref1, ref2)
 	if err != nil {
 		files = []git.GitChange{}
 	}
-	stat, err := git.GetDiffStat(ref1, ref2)
+	stat, err := git.GetDiffStat(ws.Path, ref1, ref2)
 	if err != nil {
 		stat = ""
 	}
@@ -752,8 +893,12 @@ func handleGitActivity(w http.ResponseWriter, r *http.Request) {
 	if r.Method == "OPTIONS" {
 		return
 	}
+	ws := resolveWorkspace(w, r)
+	if ws == nil {
+		return
+	}
 	w.Header().Set("Content-Type", "application/json")
-	dates, err := git.GetActivityDates()
+	dates, err := git.GetActivityDates(ws.Path)
 	if err != nil {
 		json.NewEncoder(w).Encode(map[string]int{})
 		return
@@ -770,8 +915,12 @@ func handleGitHotFiles(w http.ResponseWriter, r *http.Request) {
 	if r.Method == "OPTIONS" {
 		return
 	}
+	ws := resolveWorkspace(w, r)
+	if ws == nil {
+		return
+	}
 	w.Header().Set("Content-Type", "application/json")
-	files, err := git.GetHotFiles(15)
+	files, err := git.GetHotFiles(ws.Path, 15)
 	if err != nil {
 		json.NewEncoder(w).Encode([]git.HotFile{})
 		return
@@ -787,8 +936,13 @@ func handleSQLiteTables(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	ws := resolveWorkspace(w, r)
+	if ws == nil {
+		return
+	}
+
 	relPath := r.URL.Query().Get("path")
-	safePath, err := config.GetSafePath(relPath)
+	safePath, err := config.GetSafePath(ws, relPath)
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusForbidden)
 		return
@@ -826,8 +980,13 @@ func handleSQLiteQuery(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	ws := resolveWorkspace(w, r)
+	if ws == nil {
+		return
+	}
+
 	relPath := r.URL.Query().Get("path")
-	safePath, err := config.GetSafePath(relPath)
+	safePath, err := config.GetSafePath(ws, relPath)
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusForbidden)
 		return

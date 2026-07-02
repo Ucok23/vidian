@@ -4,18 +4,23 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"path/filepath"
 	"testing"
 
 	"github.com/Ucok23/vidian/internal/config"
 	"github.com/Ucok23/vidian/internal/git"
 )
 
+var testWS *config.Workspace
+
 func init() {
-	config.ActiveConfig = &config.Config{WorkspaceDir: "../.."}
+	config.ActiveConfig = config.New(false, 0)
+	abs, _ := filepath.Abs("../..")
+	testWS = config.ActiveConfig.Add(abs)
 }
 
 func TestHandleGitActivity(t *testing.T) {
-	req := httptest.NewRequest(http.MethodGet, "/api/git/activity", nil)
+	req := httptest.NewRequest(http.MethodGet, "/api/git/activity?ws="+testWS.ID, nil)
 	w := httptest.NewRecorder()
 
 	handleGitActivity(w, req)
@@ -41,7 +46,7 @@ func TestHandleGitActivity(t *testing.T) {
 }
 
 func TestHandleGitHotFiles(t *testing.T) {
-	req := httptest.NewRequest(http.MethodGet, "/api/git/hot-files", nil)
+	req := httptest.NewRequest(http.MethodGet, "/api/git/hot-files?ws="+testWS.ID, nil)
 	w := httptest.NewRecorder()
 
 	handleGitHotFiles(w, req)

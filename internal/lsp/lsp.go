@@ -38,6 +38,15 @@ func HandleLSP(ws *websocket.Conn) {
 	lang := ws.Request().URL.Query().Get("lang")
 	log.Printf("LSP client connected over WebSocket. Language: %s", lang)
 
+	// Resolve the workspace this LSP session is scoped to.
+	workspace := config.ActiveConfig.Get(ws.Request().URL.Query().Get("ws"))
+	if workspace == nil {
+		log.Printf("LSP: unknown or missing workspace")
+		sendLSPError(ws, "No workspace specified for language server.")
+		return
+	}
+	workspaceDir := workspace.Path
+
 	var cmdPath string
 	var cmdArgs []string
 
@@ -57,7 +66,7 @@ func HandleLSP(ws *websocket.Conn) {
 		cmdPath = pylspPath
 		cmdArgs = []string{}
 	case "typescript", "javascript":
-		tsLspPath := filepath.Join(config.ActiveConfig.WorkspaceDir, "frontend", "node_modules", ".bin", "typescript-language-server")
+		tsLspPath := filepath.Join(workspaceDir, "frontend", "node_modules", ".bin", "typescript-language-server")
 		if _, err := os.Stat(tsLspPath); err != nil {
 			cmdPath = "npx"
 			cmdArgs = []string{"typescript-language-server", "--stdio"}
@@ -91,7 +100,7 @@ func HandleLSP(ws *websocket.Conn) {
 	}
 
 	cmd := exec.Command(cmdPath, cmdArgs...)
-	cmd.Dir = config.ActiveConfig.WorkspaceDir
+	cmd.Dir = workspaceDir
 
 	stdin, err := cmd.StdinPipe()
 	if err != nil {

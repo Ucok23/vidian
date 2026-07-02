@@ -190,7 +190,7 @@
     }
 
     if (file && !file.isBinary && !file.isImage && !file.isVideo && !file.isAudio && !file.isCSV && !file.isSQLite && store.git.isGit) {
-      fetch(`/api/git/blame?path=${encodeURIComponent(file.path)}`)
+      fetch(store.apiUrl(`/api/git/blame?path=${encodeURIComponent(file.path)}`))
         .then(res => res.json())
         .then(data => {
           currentBlame = data;
@@ -260,7 +260,7 @@
     if (!store.activeFile || loadingPrevRev) return;
     loadingPrevRev = true;
     try {
-      const res = await fetch(`/api/git/log?path=${encodeURIComponent(store.activeFile.path)}`);
+      const res = await fetch(store.apiUrl(`/api/git/log?path=${encodeURIComponent(store.activeFile.path)}`));
       const history = await res.json();
       if (history.length < 2) { loadingPrevRev = false; return; }
       const name = store.activeFile.path.split('/').pop();
@@ -274,7 +274,7 @@
     loadingLineHistory = true;
     try {
       const path = store.activeFile.path;
-      const res = await fetch(`/api/git/line-history?path=${encodeURIComponent(path)}&start=${selectionStart}&end=${selectionEnd}`);
+      const res = await fetch(store.apiUrl(`/api/git/line-history?path=${encodeURIComponent(path)}&start=${selectionStart}&end=${selectionEnd}`));
       const commits = await res.json();
       store.lineHistory = { path, start: selectionStart, end: selectionEnd, commits };
       store.sidebarTab = 'git';
@@ -452,7 +452,7 @@
       growBlameZone(zoneId, zone);
       return;
     }
-    fetch(`/api/git/commit?hash=${record.commit.slice(0, 8)}`)
+    fetch(store.apiUrl(`/api/git/commit?hash=${record.commit.slice(0, 8)}`))
       .then(res => res.ok ? res.json() : Promise.reject())
       .then(detail => {
         commitDetailsCache[record.commit] = detail;

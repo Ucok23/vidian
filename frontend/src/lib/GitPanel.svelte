@@ -42,7 +42,7 @@
   async function loadChanges() {
     isLoadingChanges = true;
     try {
-      const res = await fetch('/api/git/changes');
+      const res = await fetch(store.apiUrl('/api/git/changes'));
       changes = (await res.json()) || [];
     } catch (err) {
       console.error("Failed to load changes", err);
@@ -54,7 +54,7 @@
   async function loadFileHistory(path) {
     isLoadingFileHistory = true;
     try {
-      const res = await fetch(`/api/git/log?path=${encodeURIComponent(path)}`);
+      const res = await fetch(store.apiUrl(`/api/git/log?path=${encodeURIComponent(path)}`));
       fileHistory = (await res.json()) || [];
     } catch (err) {
       console.error("Failed to load file history", err);
@@ -76,7 +76,7 @@
   async function loadContributors() {
     isLoadingContributors = true;
     try {
-      const res = await fetch('/api/git/contributors');
+      const res = await fetch(store.apiUrl('/api/git/contributors'));
       contributors = (await res.json()) || [];
     } catch (e) { contributors = []; }
     finally { isLoadingContributors = false; }
@@ -85,7 +85,7 @@
   async function loadStashes() {
     isLoadingStashes = true;
     try {
-      const res = await fetch('/api/git/stashes');
+      const res = await fetch(store.apiUrl('/api/git/stashes'));
       stashes = (await res.json()) || [];
     } catch (e) { stashes = []; }
     finally { isLoadingStashes = false; }
@@ -94,7 +94,7 @@
   async function loadTags() {
     isLoadingTags = true;
     try {
-      const res = await fetch('/api/git/tags');
+      const res = await fetch(store.apiUrl('/api/git/tags'));
       tags = (await res.json()) || [];
     } catch (e) { tags = []; }
     finally { isLoadingTags = false; }
@@ -107,7 +107,7 @@
       const params = new URLSearchParams();
       if (searchQuery) params.set('q', searchQuery);
       if (searchAuthor) params.set('author', searchAuthor);
-      const res = await fetch(`/api/git/search?${params}`);
+      const res = await fetch(store.apiUrl(`/api/git/search?${params}`));
       searchResults = (await res.json()) || [];
     } catch (e) { searchResults = []; }
     finally { isSearching = false; }
@@ -117,7 +117,7 @@
     if (!compareRef1 || !compareRef2) return;
     isComparing = true;
     try {
-      const res = await fetch(`/api/git/compare?ref1=${encodeURIComponent(compareRef1)}&ref2=${encodeURIComponent(compareRef2)}`);
+      const res = await fetch(store.apiUrl(`/api/git/compare?ref1=${encodeURIComponent(compareRef1)}&ref2=${encodeURIComponent(compareRef2)}`));
       store.compareResult = await res.json();
     } catch (e) { store.compareResult = null; }
     finally { isComparing = false; }
@@ -126,7 +126,7 @@
   async function loadCommits() {
     isLoadingCommits = true;
     try {
-      const res = await fetch('/api/git/log');
+      const res = await fetch(store.apiUrl('/api/git/log'));
       commits = (await res.json()) || [];
     } catch (err) {
       console.error("Failed to load commits", err);

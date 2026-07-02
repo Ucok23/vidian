@@ -70,9 +70,9 @@
 
   onMount(async () => {
     const [actRes, filesRes, contribRes] = await Promise.all([
-      fetch('/api/git/activity'),
-      fetch('/api/git/hot-files'),
-      fetch('/api/git/contributors')
+      fetch(store.apiUrl('/api/git/activity')),
+      fetch(store.apiUrl('/api/git/hot-files')),
+      fetch(store.apiUrl('/api/git/contributors'))
     ]);
     activity = await actRes.json();
     hotFiles = await filesRes.json();
