@@ -6,6 +6,7 @@
   import Search from './lib/Search.svelte';
   import Editor from './lib/Editor.svelte';
   import QuickOpen from './lib/QuickOpen.svelte';
+  import SettingsPanel from './lib/SettingsPanel.svelte';
   import GitPanel from './lib/GitPanel.svelte';
 
   let sidebarVisible = $state(true);
@@ -201,7 +202,9 @@
       <div class="activity-btn" title="About Vidian">
         <Icon name="info" size={22} color="#8e8e93" />
       </div>
-      <div class="activity-btn" title="Settings">
+      <!-- svelte-ignore a11y_click_events_have_key_events -->
+      <!-- svelte-ignore a11y_no_static_element_interactions -->
+      <div class="activity-btn" title="Settings" onclick={() => store.settingsOpen = true}>
         <Icon name="settings" size={22} color="#8e8e93" />
       </div>
     </div>
@@ -361,6 +364,9 @@
 
   <!-- Quick Open Palette -->
   <QuickOpen />
+
+  <!-- Settings -->
+  <SettingsPanel />
 </div>
 
 <style>

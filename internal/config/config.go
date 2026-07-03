@@ -3,7 +3,9 @@ package config
 import (
 	"crypto/sha1"
 	"encoding/hex"
+	"encoding/json"
 	"errors"
+	"os"
 	"path/filepath"
 	"regexp"
 	"sort"
@@ -126,4 +128,63 @@ func GetSafePathFor(cfg *Config, reqPath string) (string, error) {
 		return "", errors.New("no workspace registered")
 	}
 	return GetSafePath(ws, reqPath)
+}
+
+// Settings holds user-level preferences that persist across restarts and are
+// independent of any workspace — currently just the BYO Anthropic API key
+// used by the AI onboarding narrator. Never committed to a repo.
+type Settings struct {
+	AnthropicAPIKey string `json:"anthropicApiKey,omitempty"`
+}
+
+// settingsPathOverride lets tests redirect settings I/O to a temp dir.
+var settingsPathOverride string
+
+func settingsPath() (string, error) {
+	if settingsPathOverride != "" {
+		return settingsPathOverride, nil
+	}
+	dir, err := os.UserConfigDir()
+	if err != nil {
+		return "", err
+	}
+	return filepath.Join(dir, "vidian", "settings.json"), nil
+}
+
+// LoadSettings reads Settings from disk, returning a zero-value Settings if
+// none has been saved yet.
+func LoadSettings() (*Settings, error) {
+	path, err := settingsPath()
+	if err != nil {
+		return &Settings{}, err
+	}
+	data, err := os.ReadFile(path)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return &Settings{}, nil
+		}
+		return &Settings{}, err
+	}
+	var s Settings
+	if err := json.Unmarshal(data, &s); err != nil {
+		return &Settings{}, err
+	}
+	return &s, nil
+}
+
+// SaveSettings persists Settings to disk with owner-only permissions, since
+// it may contain an API key.
+func SaveSettings(s *Settings) error {
+	path, err := settingsPath()
+	if err != nil {
+		return err
+	}
+	if err := os.MkdirAll(filepath.Dir(path), 0700); err != nil {
+		return err
+	}
+	data, err := json.MarshalIndent(s, "", "  ")
+	if err != nil {
+		return err
+	}
+	return os.WriteFile(path, data, 0600)
 }

@@ -9,6 +9,7 @@ class AppStore {
   openFiles = $state([]);
   activePath = $state(null);
   sidebarTab = $state('explorer'); // 'explorer', 'search'
+  settingsOpen = $state(false);
   searchQuery = $state('');
   searchResults = $state([]);
   isSearching = $state(false);

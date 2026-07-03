@@ -7,6 +7,11 @@
   let isLoading = $state(true);
   let error = $state(null);
 
+  let hasKey = $state(false);
+  let narrative = $state(null);
+  let isLoadingNarrative = $state(false);
+  let narrativeError = $state(null);
+
   onMount(async () => {
     try {
       const res = await fetch(store.apiUrl('/api/git/profile'));
@@ -17,10 +22,39 @@
     } finally {
       isLoading = false;
     }
+
+    try {
+      const res = await fetch('/api/settings');
+      const data = await res.json();
+      hasKey = !!data.hasKey;
+      if (hasKey) fetchNarrative(false);
+    } catch (e) {
+      // Settings check is best-effort; leave the "add a key" CTA showing.
+    }
   });
+
+  async function fetchNarrative(regenerate) {
+    isLoadingNarrative = true;
+    narrativeError = null;
+    try {
+      const path = regenerate ? '/api/git/narrative?regenerate=1' : '/api/git/narrative';
+      const res = await fetch(store.apiUrl(path));
+      if (!res.ok) throw new Error(await res.text());
+      const data = await res.json();
+      narrative = data.narrative;
+    } catch (e) {
+      narrativeError = e.message;
+    } finally {
+      isLoadingNarrative = false;
+    }
+  }
 
   function openPath(path) {
     store.openFile(path);
+  }
+
+  function openSettings() {
+    store.settingsOpen = true;
   }
 </script>
 
@@ -36,6 +70,32 @@
   {:else if error}
     <div class="empty">Failed to load repo profile: {error}</div>
   {:else if profile}
+    <!-- AI NARRATIVE -->
+    <section class="card narrative-card">
+      <div class="card-title-row">
+        <span class="card-title">AI Tour</span>
+        {#if hasKey && narrative && !isLoadingNarrative}
+          <!-- svelte-ignore a11y_click_events_have_key_events -->
+          <!-- svelte-ignore a11y_no_static_element_interactions -->
+          <span class="regenerate-btn" onclick={() => fetchNarrative(true)}>Regenerate</span>
+        {/if}
+      </div>
+      {#if !hasKey}
+        <div class="narrative-cta">
+          <p>Add an Anthropic API key to generate a written tour of this repo, grounded in the facts below.</p>
+          <!-- svelte-ignore a11y_click_events_have_key_events -->
+          <!-- svelte-ignore a11y_no_static_element_interactions -->
+          <span class="settings-link" onclick={openSettings}>Open Settings</span>
+        </div>
+      {:else if isLoadingNarrative}
+        <div class="loading">Writing tour…</div>
+      {:else if narrativeError}
+        <div class="empty">Failed to generate tour: {narrativeError}</div>
+      {:else if narrative}
+        <p class="narrative-text">{narrative}</p>
+      {/if}
+    </section>
+
     <div class="two-col">
       <!-- STACK -->
       <section class="card">
@@ -184,6 +244,49 @@
     color: #8e8e93;
     text-transform: uppercase;
     margin-bottom: 16px;
+  }
+
+  .card-title-row {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    margin-bottom: 16px;
+  }
+
+  .card-title-row .card-title {
+    margin-bottom: 0;
+  }
+
+  .narrative-card {
+    border-color: #38bdf833;
+    background: linear-gradient(180deg, #1b1b20 0%, #17202b 100%);
+  }
+
+  .narrative-text {
+    font-size: 13px;
+    line-height: 1.7;
+    color: #d4d4d8;
+    white-space: pre-wrap;
+    margin: 0;
+  }
+
+  .narrative-cta p {
+    font-size: 12px;
+    color: #8e8e93;
+    margin: 0 0 10px;
+  }
+
+  .settings-link,
+  .regenerate-btn {
+    font-size: 12px;
+    color: #38bdf8;
+    cursor: pointer;
+    font-weight: 600;
+  }
+
+  .settings-link:hover,
+  .regenerate-btn:hover {
+    text-decoration: underline;
   }
 
   .card-sub {
