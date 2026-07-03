@@ -73,6 +73,36 @@ func TestHandleGitHotFiles(t *testing.T) {
 	}
 }
 
+func TestHandleGitProfile(t *testing.T) {
+	req := httptest.NewRequest(http.MethodGet, "/api/git/profile?ws="+testWS.ID, nil)
+	w := httptest.NewRecorder()
+
+	handleGitProfile(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d", w.Code)
+	}
+
+	var profile git.RepoProfile
+	if err := json.NewDecoder(w.Body).Decode(&profile); err != nil {
+		t.Fatalf("response is not valid JSON git.RepoProfile: %v", err)
+	}
+
+	foundGo := false
+	for _, s := range profile.Stack {
+		if s.Name == "Go" {
+			foundGo = true
+		}
+	}
+	if !foundGo {
+		t.Errorf("expected Go in detected stack, got %+v", profile.Stack)
+	}
+
+	if profile.Stats.TotalCommits == 0 {
+		t.Error("expected non-zero total commits in profile stats")
+	}
+}
+
 func TestHandleGitActivityCORSOptions(t *testing.T) {
 	req := httptest.NewRequest(http.MethodOptions, "/api/git/activity", nil)
 	w := httptest.NewRecorder()

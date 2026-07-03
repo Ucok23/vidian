@@ -103,6 +103,7 @@ func Start(cfg *config.Config, embeddedFiles fs.FS) {
 	http.HandleFunc("/api/git/dow-stats", handleGitDowStats)
 	http.HandleFunc("/api/git/hour-stats", handleGitHourStats)
 	http.HandleFunc("/api/git/word-stats", handleGitWordStats)
+	http.HandleFunc("/api/git/profile", handleGitProfile)
 	http.HandleFunc("/api/sqlite/tables", handleSQLiteTables)
 	http.HandleFunc("/api/sqlite/query", handleSQLiteQuery)
 	http.Handle("/api/lsp", websocket.Handler(lsp.HandleLSP))
@@ -1021,6 +1022,24 @@ func handleGitWordStats(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	json.NewEncoder(w).Encode(result)
+}
+
+func handleGitProfile(w http.ResponseWriter, r *http.Request) {
+	setupCORS(w, r)
+	if r.Method == "OPTIONS" {
+		return
+	}
+	ws := resolveWorkspace(w, r)
+	if ws == nil {
+		return
+	}
+	w.Header().Set("Content-Type", "application/json")
+	profile, err := git.GetRepoProfile(ws.Path)
+	if err != nil {
+		json.NewEncoder(w).Encode(git.RepoProfile{})
+		return
+	}
+	json.NewEncoder(w).Encode(profile)
 }
 
 var validTableName = regexp.MustCompile(`^[a-zA-Z_][a-zA-Z0-9_]*$`)

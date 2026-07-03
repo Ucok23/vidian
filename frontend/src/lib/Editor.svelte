@@ -10,6 +10,7 @@
   import CommitViewer from './CommitViewer.svelte';
   import CommitGraph from './CommitGraph.svelte';
   import InsightsPanel from './InsightsPanel.svelte';
+  import OnboardingPanel from './OnboardingPanel.svelte';
 
   let editorContainer = $state(null);
   let editor = $state.raw(null);
@@ -647,6 +648,9 @@
   {:else if store.activeFile?.isInsights}
     <!-- Repo Insights -->
     <InsightsPanel />
+  {:else if store.activeFile?.isOnboarding}
+    <!-- Onboarding -->
+    <OnboardingPanel />
   {:else if !store.activePath}
     <!-- Empty State / Welcome Screen -->
     <div class="welcome-screen">
@@ -774,7 +778,7 @@
     </button>
   {/if}
 
-  {#if store.activePath && !store.activeFile?.isBinary && !store.activeFile?.isImage && !store.activeFile?.isVideo && !store.activeFile?.isAudio && !store.activeFile?.isCSV && !store.activeFile?.isSQLite && !store.activeFile?.isCommit && !store.activeFile?.isGraph && !store.activeFile?.isInsights && !store.activeDiff}
+  {#if store.activePath && !store.activeFile?.isBinary && !store.activeFile?.isImage && !store.activeFile?.isVideo && !store.activeFile?.isAudio && !store.activeFile?.isCSV && !store.activeFile?.isSQLite && !store.activeFile?.isCommit && !store.activeFile?.isGraph && !store.activeFile?.isInsights && !store.activeFile?.isOnboarding && !store.activeDiff}
     <div class="editor-actions">
       {#if store.git.isGit}
         <button
