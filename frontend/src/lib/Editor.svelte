@@ -484,6 +484,20 @@
     editor.focus();
   }
 
+  // triggerReferences asks the language server for every use of the symbol at
+  // `position` and pipes the result into the References sidebar panel.
+  async function triggerReferences(position) {
+    if (!editor || !position) return;
+    const model = editor.getModel();
+    if (!model) return;
+    const word = model.getWordAtPosition(position);
+    if (!word) return;
+    store.beginReferences(word.word);
+    const { findReferences } = await import('./lsp.svelte.js');
+    const locations = await findReferences(model, position);
+    await store.buildReferences(word.word, locations);
+  }
+
   onMount(async () => {
     // Create Monaco instance
     editor = monaco.editor.create(editorContainer, {
@@ -592,6 +606,13 @@
     // Click handler for inline blame annotations: toggle the blame accordion for the clicked line.
     // Uses Monaco's own mouse-target API (not raw DOM listeners) since it's the
     // officially supported way to detect clicks on decorations reliably.
+    // Alt+click a symbol -> find all references (callers) in the sidebar.
+    editor.onMouseDown(e => {
+      if (e.event?.altKey && e.target.type === monaco.editor.MouseTargetType.CONTENT_TEXT && e.target.position) {
+        triggerReferences(e.target.position);
+      }
+    });
+
     editor.onMouseDown(e => {
       if (!currentBlame.length) return;
       if (e.target.type !== monaco.editor.MouseTargetType.CONTENT_TEXT) return;
@@ -609,6 +630,16 @@
     // Register LSP providers
     const { registerLspProviders } = await import('./lsp.svelte.js');
     registerLspProviders();
+
+    // Context-menu + Shift+F12 entry for "find all references" (show callers).
+    editor.addAction({
+      id: 'vidian.findReferences',
+      label: 'Find All References (Show Callers)',
+      keybindings: [monaco.KeyMod.Shift | monaco.KeyCode.F12],
+      contextMenuGroupId: 'navigation',
+      contextMenuOrder: 1.5,
+      run: (ed) => triggerReferences(ed.getPosition())
+    });
   });
 
   onDestroy(() => {

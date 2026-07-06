@@ -8,6 +8,7 @@
   import QuickOpen from './lib/QuickOpen.svelte';
   import SettingsPanel from './lib/SettingsPanel.svelte';
   import GitPanel from './lib/GitPanel.svelte';
+  import ReferencesPanel from './lib/ReferencesPanel.svelte';
 
   let sidebarVisible = $state(true);
   let sidebarWidth = $state(260);
@@ -127,6 +128,13 @@
     }
   });
 
+  // Reveal the sidebar when a references lookup starts from the editor.
+  $effect(() => {
+    if (store.references && store.sidebarTab === 'references') {
+      sidebarVisible = true;
+    }
+  });
+
   onMount(async () => {
     await store.init();
     window.addEventListener('keydown', handleKeyDown);
@@ -163,6 +171,19 @@
       >
         <Icon name="search" size={24} />
       </div>
+
+      {#if store.references}
+        <!-- svelte-ignore a11y_click_events_have_key_events -->
+        <!-- svelte-ignore a11y_no_static_element_interactions -->
+        <div
+          class="activity-btn"
+          class:active={sidebarVisible && store.sidebarTab === 'references'}
+          onclick={() => toggleSidebarTab('references')}
+          title="References"
+        >
+          <Icon name="references" size={22} />
+        </div>
+      {/if}
 
       {#if store.git.isGit}
         <!-- svelte-ignore a11y_click_events_have_key_events -->
@@ -219,6 +240,8 @@
         <Search />
       {:else if store.sidebarTab === 'git'}
         <GitPanel />
+      {:else if store.sidebarTab === 'references'}
+        <ReferencesPanel />
       {/if}
     </div>
 

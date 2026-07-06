@@ -90,7 +90,8 @@ export function initLsp(workspacePath, filename) {
         capabilities: {
           textDocument: {
             hover: { contentFormat: ['markdown', 'plaintext'] },
-            definition: { dynamicRegistration: true }
+            definition: { dynamicRegistration: true },
+            references: { dynamicRegistration: true }
           }
         }
       });
@@ -168,6 +169,26 @@ function handleDiagnostics(params) {
       endColumn: d.range.end.character + 1
     }));
     monaco.editor.setModelMarkers(model, 'lsp', markers);
+  }
+}
+
+// findReferences asks the language server for every use of the symbol under
+// `position` (declaration included). Returns raw LSP Location objects
+// ({ uri, range }), or [] if the server can't answer. The caller is
+// responsible for turning URIs into workspace-relative paths and previews.
+export async function findReferences(model, position) {
+  if (!isInitialized) return [];
+  try {
+    const res = await sendRequest('textDocument/references', {
+      textDocument: { uri: model.uri.toString() },
+      position: { line: position.lineNumber - 1, character: position.column - 1 },
+      context: { includeDeclaration: true }
+    });
+    if (!res) return [];
+    return Array.isArray(res) ? res : [res];
+  } catch (err) {
+    console.error('LSP references failed', err);
+    return [];
   }
 }
 

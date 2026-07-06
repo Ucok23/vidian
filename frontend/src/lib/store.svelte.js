@@ -18,6 +18,9 @@ class AppStore {
   currentLineBlame = $state(null);
   lineHistory = $state(null);    // { path, start, end, commits: [] }
   compareResult = $state(null);  // { ref1, ref2, files: [], stat: '' }
+  // References ("find all callers") result for the symbol under the cursor.
+  // { symbol, loading, error, groups: [{ path, items: [{ line, column, preview }] }] }
+  references = $state(null);
   
   // File tree expanded paths
   expandedPaths = $state(new Set());
@@ -103,6 +106,7 @@ class AppStore {
     this.currentLineBlame = null;
     this.lineHistory = null;
     this.compareResult = null;
+    this.references = null;
     await this.loadWorkspaceData();
   }
 
@@ -220,6 +224,76 @@ class AppStore {
         }
       }, 150);
     }
+  }
+
+  // uriToRelPath converts an LSP file:// URI into a workspace-relative path,
+  // mirroring the codeEditorService patch in Editor.svelte.
+  uriToRelPath(uri) {
+    let p = uri.replace(/^file:\/\//, '');
+    try { p = decodeURIComponent(p); } catch { /* leave as-is */ }
+    const wsPath = this.workspace.path;
+    if (wsPath && p.startsWith(wsPath)) p = p.slice(wsPath.length);
+    if (p.startsWith('/')) p = p.slice(1);
+    return p;
+  }
+
+  // beginReferences primes the references panel with a loading state for the
+  // given symbol, so the sidebar can open immediately while the LSP query and
+  // preview fetches complete.
+  beginReferences(symbol) {
+    this.references = { symbol: symbol || 'symbol', loading: true, error: null, groups: [] };
+    this.sidebarTab = 'references';
+  }
+
+  clearReferences() {
+    this.references = null;
+  }
+
+  // buildReferences turns raw LSP Location objects into the grouped, preview-rich
+  // shape the ReferencesPanel renders. It fetches each referenced file once
+  // (reusing already-open content when possible) to slice a one-line preview.
+  async buildReferences(symbol, locations) {
+    if (!locations || locations.length === 0) {
+      this.references = { symbol: symbol || 'symbol', loading: false, error: null, groups: [] };
+      return;
+    }
+
+    // Group locations by workspace-relative path, preserving line order.
+    const byPath = new Map();
+    for (const loc of locations) {
+      if (!loc || !loc.uri || !loc.range) continue;
+      const path = this.uriToRelPath(loc.uri);
+      const line = loc.range.start.line + 1;
+      const column = loc.range.start.character + 1;
+      if (!byPath.has(path)) byPath.set(path, []);
+      byPath.get(path).push({ line, column });
+    }
+
+    // Fetch each file's lines once so we can attach a source-line preview.
+    const groups = [];
+    for (const [path, items] of byPath) {
+      let lines = null;
+      const open = this.openFiles.find(f => f.path === path && typeof f.content === 'string');
+      if (open) {
+        lines = open.content.split('\n');
+      } else {
+        try {
+          const res = await fetch(this.apiUrl(`/api/file?path=${encodeURIComponent(path)}`));
+          if (res.ok && (res.headers.get('content-type') || '').indexOf('application/json') === -1) {
+            lines = (await res.text()).split('\n');
+          }
+        } catch { /* preview is best-effort */ }
+      }
+
+      items.sort((a, b) => a.line - b.line);
+      for (const it of items) {
+        it.preview = lines && lines[it.line - 1] !== undefined ? lines[it.line - 1].trim() : '';
+      }
+      groups.push({ path, items });
+    }
+
+    groups.sort((a, b) => a.path.localeCompare(b.path));
+    this.references = { symbol: symbol || 'symbol', loading: false, error: null, groups };
   }
 
   closeFile(path) {
