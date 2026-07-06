@@ -107,6 +107,7 @@ func Start(cfg *config.Config, embeddedFiles fs.FS) {
 	http.HandleFunc("/api/git/narrative", handleGitNarrative)
 	http.HandleFunc("/api/settings", handleGetSettings)
 	http.HandleFunc("/api/settings/save", handleSaveSettings)
+	http.HandleFunc("/api/ai/explain", handleAIExplain)
 	http.HandleFunc("/api/sqlite/tables", handleSQLiteTables)
 	http.HandleFunc("/api/sqlite/query", handleSQLiteQuery)
 	http.Handle("/api/lsp", websocket.Handler(lsp.HandleLSP))

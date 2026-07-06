@@ -229,14 +229,13 @@
     }
   });
 
-  // Code lens effect
+  // Code lens effect: the global codeLens option stays on (references lenses
+  // rely on it); this toggle only gates the blame lens provider.
   $effect(() => {
     if (!editor) return;
-    editor.updateOptions({ codeLens: showCodeLens });
-    if (showCodeLens) {
-      window._vidianBlameLens = currentBlame;
-      window._vidianFireBlameLens?.();
-    }
+    window._vidianBlameLensEnabled = showCodeLens;
+    window._vidianBlameLens = currentBlame;
+    window._vidianFireBlameLens?.();
   });
 
   function heatClass(dateStr) {
@@ -498,6 +497,29 @@
     await store.buildReferences(word.word, locations);
   }
 
+  // explainActive sends the current selection (or the whole file) to the AI
+  // provider and shows the result in the AI sidebar panel.
+  let copiedLink = $state(false);
+  function explainActive() {
+    if (!editor || !store.activeFile) return;
+    const model = editor.getModel();
+    if (!model) return;
+    const sel = editor.getSelection();
+    let code = model.getValue();
+    let label = store.activeFile.path;
+    if (sel && !sel.isEmpty()) {
+      code = model.getValueInRange(sel);
+      label = `${store.activeFile.path}:${sel.startLineNumber}-${sel.endLineNumber}`;
+    }
+    store.runExplain(label, code);
+  }
+
+  function copyDeepLink() {
+    navigator.clipboard.writeText(store.deepLink());
+    copiedLink = true;
+    setTimeout(() => copiedLink = false, 1500);
+  }
+
   onMount(async () => {
     // Create Monaco instance
     editor = monaco.editor.create(editorContainer, {
@@ -524,7 +546,16 @@
         useShadows: false
       },
       overviewRulerLanes: 0,
-      hideCursorInOverviewRuler: true
+      hideCursorInOverviewRuler: true,
+      codeLens: true,
+      // Peek definitions/references inline instead of only jumping, and keep
+      // the peek widget when there are multiple targets.
+      gotoLocation: {
+        multipleDefinitions: 'peek',
+        multipleTypeDefinitions: 'peek',
+        multipleDeclarations: 'peek',
+        multipleReferences: 'peek'
+      }
     });
 
     // Patch the editor's existing codeEditorService to intercept file navigation
@@ -565,6 +596,9 @@
           return { dispose: () => { window._vidianBlameLensListeners = window._vidianBlameLensListeners.filter(l => l !== listener); } };
         },
         provideCodeLenses(model) {
+          // Blame lenses are opt-in via the "Lens" toggle; references lenses
+          // (a separate provider) stay on. Both share the global codeLens flag.
+          if (!window._vidianBlameLensEnabled) return { lenses: [], dispose: () => {} };
           const blame = window._vidianBlameLens || [];
           const lenses = [];
           let prevCommit = null;
@@ -628,8 +662,66 @@
     });
 
     // Register LSP providers
-    const { registerLspProviders } = await import('./lsp.svelte.js');
+    const { registerLspProviders, documentSymbols, findReferences, lspReady } = await import('./lsp.svelte.js');
     registerLspProviders();
+
+    // References CodeLens: an "N references" line above each declaration that,
+    // when clicked, opens the references sidebar for that symbol. Registered
+    // once for the app's lifetime.
+    if (!window._vidianRefLensRegistered) {
+      window._vidianRefLensRegistered = true;
+      window._vidianLspReadyListeners = window._vidianLspReadyListeners || [];
+      const refCmdId = editor.addCommand(0, (_accessor, pos) => triggerReferences(pos));
+      const declKinds = new Set([5, 6, 9, 10, 11, 12, 23]); // class, method, ctor, enum, interface, function, struct
+      const lensListeners = [];
+      window._vidianLspReadyListeners.push(() => lensListeners.forEach(fn => fn()));
+
+      const collectDecls = (list, out) => {
+        for (const s of list) {
+          if (declKinds.has(s.kind)) {
+            const r = s.selectionRange || s.range || s.location?.range;
+            if (r) out.push({ line: r.start.line + 1, col: r.start.character + 1 });
+          }
+          if (Array.isArray(s.children)) collectDecls(s.children, out);
+        }
+        return out;
+      };
+
+      const refLensProvider = {
+        onDidChangeCodeLenses: (listener) => {
+          lensListeners.push(listener);
+          return { dispose: () => { const i = lensListeners.indexOf(listener); if (i >= 0) lensListeners.splice(i, 1); } };
+        },
+        async provideCodeLenses(model) {
+          // Monaco may call this before the language server has initialized;
+          // wait briefly so the first paint isn't empty (Monaco renders when
+          // this promise resolves).
+          for (let i = 0; i < 20 && !lspReady(); i++) {
+            await new Promise(r => setTimeout(r, 400));
+          }
+          if (!lspReady()) return { lenses: [], dispose() {} };
+          const syms = await documentSymbols(model);
+          const decls = collectDecls(syms, []);
+          // Compute reference counts inline (in parallel). Monaco does not
+          // reliably call resolveCodeLens for our provider, so the command —
+          // which is what makes a lens render — must be set here.
+          const lenses = await Promise.all(decls.map(async (d) => {
+            const pos = { lineNumber: d.line, column: d.col };
+            const locs = await findReferences(model, pos);
+            const n = locs.length > 0 ? locs.length - 1 : 0; // exclude the declaration itself
+            return {
+              range: { startLineNumber: d.line, startColumn: 1, endLineNumber: d.line, endColumn: 1 },
+              id: `vref:${d.line}`,
+              command: { id: refCmdId, title: n === 1 ? '1 reference' : `${n} references`, arguments: [pos] }
+            };
+          }));
+          return { lenses, dispose() {} };
+        }
+      };
+
+      const refLensLangs = ['go', 'python', 'typescript', 'javascript', 'rust', 'c', 'cpp', 'lua', 'ruby'];
+      refLensLangs.forEach(lang => monaco.languages.registerCodeLensProvider(lang, refLensProvider));
+    }
 
     // Context-menu + Shift+F12 entry for "find all references" (show callers).
     editor.addAction({
@@ -811,7 +903,15 @@
 
   {#if store.activePath && !store.activeFile?.isBinary && !store.activeFile?.isImage && !store.activeFile?.isVideo && !store.activeFile?.isAudio && !store.activeFile?.isCSV && !store.activeFile?.isSQLite && !store.activeFile?.isCommit && !store.activeFile?.isGraph && !store.activeFile?.isInsights && !store.activeFile?.isOnboarding && !store.activeDiff}
     <div class="editor-actions">
+      <button onclick={explainActive} title="Explain this file (or the current selection) with AI">
+        <Icon name="sparkles" size={11} /> Explain
+      </button>
+      <button onclick={copyDeepLink} title="Copy a shareable link to this file and line">
+        <Icon name="link" size={11} /> {copiedLink ? 'Copied' : 'Link'}
+      </button>
+
       {#if store.git.isGit}
+        <div class="act-sep"></div>
         <button
           class:active={showAllBlame}
           onclick={() => { showAllBlame = !showAllBlame; if (!showAllBlame) { blameDecorations = editor?.deltaDecorations(blameDecorations, []); updateBlameDecoration(); } }}

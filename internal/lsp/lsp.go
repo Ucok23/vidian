@@ -81,6 +81,27 @@ func HandleLSP(ws *websocket.Conn) {
 		}
 		cmdPath = rustLspPath
 		cmdArgs = []string{}
+	case "c", "cpp":
+		clangdPath, err := exec.LookPath("clangd")
+		if err != nil {
+			clangdPath = filepath.Join(os.Getenv("HOME"), ".local/bin/clangd")
+		}
+		cmdPath = clangdPath
+		cmdArgs = []string{}
+	case "lua":
+		luaLspPath, err := exec.LookPath("lua-language-server")
+		if err != nil {
+			luaLspPath = filepath.Join(os.Getenv("HOME"), ".local/bin/lua-language-server")
+		}
+		cmdPath = luaLspPath
+		cmdArgs = []string{}
+	case "ruby":
+		rubyLspPath, err := exec.LookPath("solargraph")
+		if err != nil {
+			rubyLspPath = filepath.Join(os.Getenv("HOME"), ".local/bin/solargraph")
+		}
+		cmdPath = rubyLspPath
+		cmdArgs = []string{"stdio"}
 	default:
 		log.Printf("Unsupported LSP language: %s", lang)
 		sendLSPError(ws, fmt.Sprintf("No language server configured for %q.", lang))

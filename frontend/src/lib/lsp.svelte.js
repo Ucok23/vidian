@@ -16,8 +16,19 @@ const extMapping = {
   js: 'javascript',
   jsx: 'javascript',
   tsx: 'typescript',
-  rs: 'rust'
+  rs: 'rust',
+  c: 'c',
+  h: 'c',
+  cpp: 'cpp',
+  cc: 'cpp',
+  cxx: 'cpp',
+  hpp: 'cpp',
+  lua: 'lua',
+  rb: 'ruby'
 };
+
+// Languages that have a backend language server wired up in internal/lsp.
+const supportedLangs = ['go', 'python', 'typescript', 'javascript', 'rust', 'c', 'cpp', 'lua', 'ruby'];
 
 export function initLsp(workspacePath, filename) {
   if (!filename) return;
@@ -25,7 +36,6 @@ export function initLsp(workspacePath, filename) {
   const lspLang = extMapping[ext];
 
   // Only connect for supported languages
-  const supportedLangs = ['go', 'python', 'typescript', 'javascript', 'rust'];
   if (!lspLang || !supportedLangs.includes(lspLang)) {
     if (ws) {
       ws.close();
@@ -91,7 +101,8 @@ export function initLsp(workspacePath, filename) {
           textDocument: {
             hover: { contentFormat: ['markdown', 'plaintext'] },
             definition: { dynamicRegistration: true },
-            references: { dynamicRegistration: true }
+            references: { dynamicRegistration: true },
+            documentSymbol: { hierarchicalDocumentSymbolSupport: true }
           }
         }
       });
@@ -99,6 +110,12 @@ export function initLsp(workspacePath, filename) {
       sendNotification('initialized', {});
       isInitialized = true;
       console.log(`LSP (${lspLang}) initialized successfully`, initResult);
+
+      // Notify listeners (e.g. the references CodeLens provider) that symbol
+      // and reference queries will now succeed, so they can refresh.
+      if (typeof window !== 'undefined' && Array.isArray(window._vidianLspReadyListeners)) {
+        window._vidianLspReadyListeners.forEach(fn => { try { fn(); } catch { /* ignore */ } });
+      }
 
       // Trigger didOpen for the currently active file
       if (store.activeFile) {
@@ -192,11 +209,32 @@ export async function findReferences(model, position) {
   }
 }
 
+// documentSymbols asks the language server for the symbol tree (functions,
+// types, methods, …) of the file backing `model`. Returns [] if unavailable.
+// The result may be either a flat SymbolInformation[] or a hierarchical
+// DocumentSymbol[]; the caller normalizes both shapes.
+export async function documentSymbols(model) {
+  if (!isInitialized) return [];
+  try {
+    const res = await sendRequest('textDocument/documentSymbol', {
+      textDocument: { uri: model.uri.toString() }
+    });
+    return Array.isArray(res) ? res : [];
+  } catch (err) {
+    console.error('LSP documentSymbol failed', err);
+    return [];
+  }
+}
+
+// lspReady reports whether an LSP session is initialized for the active
+// language, so UI can avoid offering LSP-only affordances otherwise.
+export function lspReady() {
+  return isInitialized;
+}
+
 // Register Monaco providers for all supported languages
 export function registerLspProviders() {
-  const languages = ['go', 'python', 'typescript', 'javascript', 'rust'];
-  
-  languages.forEach(lang => {
+  supportedLangs.forEach(lang => {
     monaco.languages.registerHoverProvider(lang, {
       async provideHover(model, position) {
         if (!isInitialized || activeLang !== lang) return null;

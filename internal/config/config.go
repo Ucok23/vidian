@@ -135,6 +135,15 @@ func GetSafePathFor(cfg *Config, reqPath string) (string, error) {
 // used by the AI onboarding narrator. Never committed to a repo.
 type Settings struct {
 	AnthropicAPIKey string `json:"anthropicApiKey,omitempty"`
+	// AI provider selection for the narrator and "explain" features.
+	// AIProvider "" or "anthropic" uses the Anthropic Messages API with
+	// AnthropicAPIKey. AIProvider "openai" targets any OpenAI-compatible
+	// /chat/completions endpoint at AIBaseURL (e.g. a local Ollama/LM Studio
+	// server) using AIModel and the optional AIAPIKey.
+	AIProvider string `json:"aiProvider,omitempty"`
+	AIBaseURL  string `json:"aiBaseUrl,omitempty"`
+	AIModel    string `json:"aiModel,omitempty"`
+	AIAPIKey   string `json:"aiApiKey,omitempty"`
 }
 
 // settingsPathOverride lets tests redirect settings I/O to a temp dir.

@@ -21,6 +21,9 @@ class AppStore {
   // References ("find all callers") result for the symbol under the cursor.
   // { symbol, loading, error, groups: [{ path, items: [{ line, column, preview }] }] }
   references = $state(null);
+  // AI explanation of the active file/selection.
+  // { title, loading, error, text }
+  aiExplain = $state(null);
   
   // File tree expanded paths
   expandedPaths = $state(new Set());
@@ -59,6 +62,14 @@ class AppStore {
       this.workspace = { name: current.name, path: current.path };
       this.syncUrl(current.id);
       await this.loadWorkspaceData();
+
+      // Restore a deep-linked file/line from the URL, if present and valid.
+      const params = new URLSearchParams(window.location.search);
+      const file = params.get('file');
+      if (file) {
+        const line = parseInt(params.get('line') || '', 10);
+        await this.openFile(file, Number.isFinite(line) ? line : null);
+      }
     } catch (err) {
       console.error("Failed to load workspace info", err);
     }
@@ -107,6 +118,7 @@ class AppStore {
     this.lineHistory = null;
     this.compareResult = null;
     this.references = null;
+    this.aiExplain = null;
     await this.loadWorkspaceData();
   }
 
@@ -212,7 +224,8 @@ class AppStore {
     }
 
     this.activePath = path;
-    
+    this.syncFileUrl(path, jumpToLine);
+
     // If we need to jump to a line
     if (jumpToLine && window.editorInstance) {
       // Wait for Monaco to load content
@@ -247,6 +260,61 @@ class AppStore {
 
   clearReferences() {
     this.references = null;
+  }
+
+  // runExplain asks the backend AI provider to explain code (a whole file, or a
+  // selected snippet) and streams the result into the AI sidebar panel.
+  async runExplain(path, code) {
+    const title = path || 'Selection';
+    this.aiExplain = { title, loading: true, error: null, text: '' };
+    this.sidebarTab = 'ai';
+    try {
+      const res = await fetch(this.apiUrl('/api/ai/explain'), {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ path, code })
+      });
+      if (!res.ok) {
+        const msg = (await res.text()).trim() || `Request failed (${res.status})`;
+        this.aiExplain = { title, loading: false, error: msg, text: '' };
+        return;
+      }
+      const data = await res.json();
+      this.aiExplain = { title, loading: false, error: null, text: data.explanation || '' };
+    } catch (e) {
+      this.aiExplain = { title, loading: false, error: e.message, text: '' };
+    }
+  }
+
+  clearExplain() {
+    this.aiExplain = null;
+  }
+
+  // syncFileUrl keeps ?file=&line= in the address bar so the current file and
+  // position can be shared or restored on reload. Uses replaceState to avoid
+  // polluting browser history on every navigation.
+  syncFileUrl(path, line) {
+    const url = new URL(window.location.href);
+    if (path) {
+      url.searchParams.set('file', path);
+      if (line) url.searchParams.set('line', String(line));
+      else url.searchParams.delete('line');
+    } else {
+      url.searchParams.delete('file');
+      url.searchParams.delete('line');
+    }
+    window.history.replaceState({}, '', url);
+  }
+
+  // deepLink builds a shareable absolute URL to the active file and line.
+  deepLink() {
+    const url = new URL(window.location.href);
+    if (this.currentWorkspaceId) url.searchParams.set('ws', this.currentWorkspaceId);
+    if (this.activePath) {
+      url.searchParams.set('file', this.activePath);
+      if (this.cursorPos?.line) url.searchParams.set('line', String(this.cursorPos.line));
+    }
+    return url.toString();
   }
 
   // buildReferences turns raw LSP Location objects into the grouped, preview-rich
@@ -331,6 +399,7 @@ class AppStore {
     this.openFiles = [];
     this.activePath = null;
     this.activeDiff = null;
+    this.syncFileUrl(null);
   }
 
   async search(query) {

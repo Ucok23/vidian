@@ -9,6 +9,8 @@
   import SettingsPanel from './lib/SettingsPanel.svelte';
   import GitPanel from './lib/GitPanel.svelte';
   import ReferencesPanel from './lib/ReferencesPanel.svelte';
+  import OutlinePanel from './lib/OutlinePanel.svelte';
+  import AiPanel from './lib/AiPanel.svelte';
 
   let sidebarVisible = $state(true);
   let sidebarWidth = $state(260);
@@ -135,6 +137,13 @@
     }
   });
 
+  // Reveal the sidebar when an AI explanation starts from the editor.
+  $effect(() => {
+    if (store.aiExplain && store.sidebarTab === 'ai') {
+      sidebarVisible = true;
+    }
+  });
+
   onMount(async () => {
     await store.init();
     window.addEventListener('keydown', handleKeyDown);
@@ -172,6 +181,17 @@
         <Icon name="search" size={24} />
       </div>
 
+      <!-- svelte-ignore a11y_click_events_have_key_events -->
+      <!-- svelte-ignore a11y_no_static_element_interactions -->
+      <div
+        class="activity-btn"
+        class:active={sidebarVisible && store.sidebarTab === 'outline'}
+        onclick={() => toggleSidebarTab('outline')}
+        title="Outline"
+      >
+        <Icon name="list" size={24} />
+      </div>
+
       {#if store.references}
         <!-- svelte-ignore a11y_click_events_have_key_events -->
         <!-- svelte-ignore a11y_no_static_element_interactions -->
@@ -182,6 +202,19 @@
           title="References"
         >
           <Icon name="references" size={22} />
+        </div>
+      {/if}
+
+      {#if store.aiExplain}
+        <!-- svelte-ignore a11y_click_events_have_key_events -->
+        <!-- svelte-ignore a11y_no_static_element_interactions -->
+        <div
+          class="activity-btn"
+          class:active={sidebarVisible && store.sidebarTab === 'ai'}
+          onclick={() => toggleSidebarTab('ai')}
+          title="AI Explain"
+        >
+          <Icon name="sparkles" size={22} />
         </div>
       {/if}
 
@@ -242,6 +275,10 @@
         <GitPanel />
       {:else if store.sidebarTab === 'references'}
         <ReferencesPanel />
+      {:else if store.sidebarTab === 'outline'}
+        <OutlinePanel />
+      {:else if store.sidebarTab === 'ai'}
+        <AiPanel />
       {/if}
     </div>
 
