@@ -57,6 +57,7 @@ export function initLsp(workspacePath, filename) {
   if (ws) {
     ws.close();
     isInitialized = false;
+    if (typeof window !== 'undefined') window._vidianLspReady = false;
     pendingRequests.clear();
   }
 
@@ -109,6 +110,8 @@ export function initLsp(workspacePath, filename) {
 
       sendNotification('initialized', {});
       isInitialized = true;
+      // Readiness flag for tests/tooling to await before exercising LSP features.
+      if (typeof window !== 'undefined') window._vidianLspReady = true;
       console.log(`LSP (${lspLang}) initialized successfully`, initResult);
 
       // Notify listeners (e.g. the references CodeLens provider) that symbol
