@@ -16,16 +16,21 @@ import (
 // Anthropic Messages API; Kind "openai" uses any OpenAI-compatible
 // /chat/completions endpoint (OpenAI itself, Ollama, LM Studio, vLLM, …),
 // which is what lets users point Vidian at a local or self-hosted model
-// instead of a cloud key.
+// instead of a cloud key; Kind "gemini" uses Google's native
+// generateContent API.
 type Provider struct {
-	Kind    string // "anthropic" | "openai"
-	BaseURL string // for openai: e.g. http://localhost:11434/v1 (no trailing /chat/completions)
+	Kind    string // "anthropic" | "openai" | "gemini"
+	BaseURL string // openai: API root (…/v1); gemini: API root (…/v1beta)
 	APIKey  string
 	Model   string
 }
 
-// DefaultAnthropicModel is used when a provider doesn't name a model.
-const DefaultAnthropicModel = "claude-sonnet-5"
+// Default models / endpoints used when a provider doesn't specify one.
+const (
+	DefaultAnthropicModel = "claude-sonnet-5"
+	DefaultGeminiModel    = "gemini-2.0-flash"
+	DefaultGeminiBaseURL  = "https://generativelanguage.googleapis.com/v1beta"
+)
 
 // Complete sends a single system+user turn and returns the assistant's text.
 // It dispatches on p.Kind so callers (Narrate, Explain) don't care which
@@ -34,6 +39,8 @@ func (p Provider) Complete(systemPrompt, userContent string, maxTokens int) (str
 	switch p.Kind {
 	case "openai":
 		return p.completeOpenAI(systemPrompt, userContent, maxTokens)
+	case "gemini":
+		return p.completeGemini(systemPrompt, userContent, maxTokens)
 	case "anthropic", "":
 		return p.completeAnthropic(systemPrompt, userContent, maxTokens)
 	default:
@@ -146,6 +153,72 @@ func (p Provider) completeOpenAI(systemPrompt, userContent string, maxTokens int
 		return "", errors.New("no choices in OpenAI-compatible response")
 	}
 	return parsed.Choices[0].Message.Content, nil
+}
+
+func (p Provider) completeGemini(systemPrompt, userContent string, maxTokens int) (string, error) {
+	if p.APIKey == "" {
+		return "", ErrNoAPIKey
+	}
+	model := p.Model
+	if model == "" {
+		model = DefaultGeminiModel
+	}
+	base := p.BaseURL
+	if base == "" {
+		base = DefaultGeminiBaseURL
+	}
+	for len(base) > 0 && base[len(base)-1] == '/' {
+		base = base[:len(base)-1]
+	}
+
+	reqBody := map[string]any{
+		"system_instruction": map[string]any{
+			"parts": []map[string]string{{"text": systemPrompt}},
+		},
+		"contents": []map[string]any{
+			{"role": "user", "parts": []map[string]string{{"text": userContent}}},
+		},
+		"generationConfig": map[string]any{"maxOutputTokens": maxTokens},
+	}
+	bodyBytes, err := json.Marshal(reqBody)
+	if err != nil {
+		return "", fmt.Errorf("marshal request: %w", err)
+	}
+
+	url := fmt.Sprintf("%s/models/%s:generateContent", base, model)
+	req, err := http.NewRequest(http.MethodPost, url, bytes.NewReader(bodyBytes))
+	if err != nil {
+		return "", err
+	}
+	req.Header.Set("Content-Type", "application/json")
+	// Header auth keeps the key out of the URL (and out of any request logs).
+	req.Header.Set("x-goog-api-key", p.APIKey)
+
+	respBytes, err := doRequest(req)
+	if err != nil {
+		return "", err
+	}
+
+	var parsed struct {
+		Candidates []struct {
+			Content struct {
+				Parts []struct {
+					Text string `json:"text"`
+				} `json:"parts"`
+			} `json:"content"`
+		} `json:"candidates"`
+	}
+	if err := json.Unmarshal(respBytes, &parsed); err != nil {
+		return "", fmt.Errorf("parse response: %w", err)
+	}
+	for _, c := range parsed.Candidates {
+		for _, part := range c.Content.Parts {
+			if part.Text != "" {
+				return part.Text, nil
+			}
+		}
+	}
+	return "", errors.New("no text content in Gemini response")
 }
 
 // doRequest executes an already-built request and returns the body, mapping

@@ -62,6 +62,47 @@ func TestCompleteAnthropicNoKey(t *testing.T) {
 	}
 }
 
+func TestCompleteGeminiHitsGenerateContent(t *testing.T) {
+	var gotPath, gotKey string
+	var gotBody map[string]any
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		gotPath = r.URL.Path
+		gotKey = r.Header.Get("x-goog-api-key")
+		json.NewDecoder(r.Body).Decode(&gotBody)
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(map[string]any{
+			"candidates": []map[string]any{
+				{"content": map[string]any{"parts": []map[string]string{{"text": "hi from gemini"}}}},
+			},
+		})
+	}))
+	defer server.Close()
+
+	p := Provider{Kind: "gemini", BaseURL: server.URL, Model: "gemini-test", APIKey: "AIza-test"}
+	out, err := p.Complete("sys", "user", 64)
+	if err != nil {
+		t.Fatalf("Complete returned error: %v", err)
+	}
+	if out != "hi from gemini" {
+		t.Errorf("unexpected content: %q", out)
+	}
+	if gotPath != "/models/gemini-test:generateContent" {
+		t.Errorf("expected native generateContent path, got %q", gotPath)
+	}
+	if gotKey != "AIza-test" {
+		t.Errorf("expected x-goog-api-key header, got %q", gotKey)
+	}
+	if _, ok := gotBody["system_instruction"]; !ok {
+		t.Errorf("expected system_instruction in body, got %+v", gotBody)
+	}
+}
+
+func TestCompleteGeminiNoKey(t *testing.T) {
+	if _, err := (Provider{Kind: "gemini"}).Complete("s", "u", 10); err != ErrNoAPIKey {
+		t.Errorf("expected ErrNoAPIKey, got %v", err)
+	}
+}
+
 func TestExplainSendsCodeAndFilename(t *testing.T) {
 	var gotBody map[string]any
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {

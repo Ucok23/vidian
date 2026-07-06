@@ -19,35 +19,67 @@ var (
 	narrativeCache   = map[string]string{}
 )
 
-// providerFromSettings resolves the effective AI backend. It returns ok=false
-// when nothing usable is configured. An explicit "openai" provider needs a
-// base URL and model; otherwise an Anthropic key is used if present.
+// defaultOpenAIBaseURL is used for the hosted "openai" provider when the user
+// doesn't override it (the local "openai-compatible" provider always requires
+// an explicit base URL).
+const defaultOpenAIBaseURL = "https://api.openai.com/v1"
+
+// providerFromSettings resolves the active AI backend from the per-provider
+// config map. It returns ok=false when the active provider isn't set up with
+// the fields it needs.
 func providerFromSettings(s *config.Settings) (ai.Provider, bool) {
 	if s == nil {
 		return ai.Provider{}, false
 	}
-	if s.AIProvider == "openai" {
-		if s.AIBaseURL == "" || s.AIModel == "" {
+	cfg := s.Providers[s.ActiveProvider]
+	switch s.ActiveProvider {
+	case "anthropic":
+		if cfg.APIKey == "" {
 			return ai.Provider{}, false
 		}
-		return ai.Provider{Kind: "openai", BaseURL: s.AIBaseURL, Model: s.AIModel, APIKey: s.AIAPIKey}, true
-	}
-	if s.AnthropicAPIKey != "" {
-		return ai.Provider{Kind: "anthropic", APIKey: s.AnthropicAPIKey, Model: s.AIModel}, true
+		return ai.Provider{Kind: "anthropic", APIKey: cfg.APIKey, Model: cfg.Model}, true
+	case "openai":
+		if cfg.APIKey == "" || cfg.Model == "" {
+			return ai.Provider{}, false
+		}
+		base := cfg.BaseURL
+		if base == "" {
+			base = defaultOpenAIBaseURL
+		}
+		return ai.Provider{Kind: "openai", BaseURL: base, Model: cfg.Model, APIKey: cfg.APIKey}, true
+	case "openai-compatible":
+		if cfg.BaseURL == "" || cfg.Model == "" {
+			return ai.Provider{}, false
+		}
+		return ai.Provider{Kind: "openai", BaseURL: cfg.BaseURL, Model: cfg.Model, APIKey: cfg.APIKey}, true
+	case "gemini":
+		if cfg.APIKey == "" {
+			return ai.Provider{}, false
+		}
+		return ai.Provider{Kind: "gemini", BaseURL: cfg.BaseURL, Model: cfg.Model, APIKey: cfg.APIKey}, true
 	}
 	return ai.Provider{}, false
 }
 
-// settingsStatus is the non-secret view of settings returned to the client.
+// settingsStatus is the non-secret view of settings returned to the client:
+// the active provider, whether it's usable, and per-provider non-secret config
+// plus a hasKey flag so the UI can prefill fields and show which are set up.
 func settingsStatus(s *config.Settings) map[string]any {
 	_, ok := providerFromSettings(s)
+	provs := map[string]any{}
+	for _, id := range config.KnownProviders {
+		cfg := s.Providers[id]
+		provs[id] = map[string]any{
+			"baseUrl": cfg.BaseURL,
+			"model":   cfg.Model,
+			"hasKey":  cfg.APIKey != "",
+		}
+	}
 	return map[string]any{
-		"hasKey":     s.AnthropicAPIKey != "", // legacy field: Anthropic key present
-		"aiProvider": s.AIProvider,
-		"aiBaseUrl":  s.AIBaseURL,
-		"aiModel":    s.AIModel,
-		"hasAiKey":   s.AIAPIKey != "",
-		"configured": ok,
+		"activeProvider": s.ActiveProvider,
+		"configured":     ok,
+		"providers":      provs,
+		"hasKey":         s.Providers["anthropic"].APIKey != "", // legacy field
 	}
 }
 
@@ -75,13 +107,17 @@ func handleSaveSettings(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	// Pointer fields distinguish "omitted, keep existing" (nil) from
-	// "set to this value, possibly clearing it" (non-nil).
+	// "set to this value, possibly clearing it" (non-nil). The client sends
+	// { activeProvider, provider: {...} } to configure one provider and make
+	// it active; anthropicApiKey is a legacy shortcut kept for compatibility.
 	var body struct {
-		AnthropicAPIKey *string `json:"anthropicApiKey"`
-		AIProvider      *string `json:"aiProvider"`
-		AIBaseURL       *string `json:"aiBaseUrl"`
-		AIModel         *string `json:"aiModel"`
-		AIAPIKey        *string `json:"aiApiKey"`
+		ActiveProvider *string `json:"activeProvider"`
+		Provider       *struct {
+			BaseURL *string `json:"baseUrl"`
+			Model   *string `json:"model"`
+			APIKey  *string `json:"apiKey"`
+		} `json:"provider"`
+		AnthropicAPIKey *string `json:"anthropicApiKey"` // legacy
 	}
 	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
 		http.Error(w, "invalid request body", http.StatusBadRequest)
@@ -91,21 +127,48 @@ func handleSaveSettings(w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		settings = &config.Settings{}
 	}
+	if settings.Providers == nil {
+		settings.Providers = map[string]config.ProviderConfig{}
+	}
+
+	// Legacy shortcut: a bare anthropicApiKey sets and activates Anthropic.
 	if body.AnthropicAPIKey != nil {
-		settings.AnthropicAPIKey = *body.AnthropicAPIKey
+		cfg := settings.Providers["anthropic"]
+		cfg.APIKey = *body.AnthropicAPIKey
+		settings.Providers["anthropic"] = cfg
+		settings.ActiveProvider = "anthropic"
 	}
-	if body.AIProvider != nil {
-		settings.AIProvider = *body.AIProvider
+
+	if body.ActiveProvider != nil {
+		id := *body.ActiveProvider
+		if !config.IsKnownProvider(id) {
+			http.Error(w, "unknown provider", http.StatusBadRequest)
+			return
+		}
+		settings.ActiveProvider = id
+		if body.Provider != nil {
+			cfg := settings.Providers[id]
+			if body.Provider.BaseURL != nil {
+				cfg.BaseURL = *body.Provider.BaseURL
+			}
+			if body.Provider.Model != nil {
+				cfg.Model = *body.Provider.Model
+			}
+			if body.Provider.APIKey != nil {
+				cfg.APIKey = *body.Provider.APIKey
+			}
+			settings.Providers[id] = cfg
+		}
 	}
-	if body.AIBaseURL != nil {
-		settings.AIBaseURL = *body.AIBaseURL
-	}
-	if body.AIModel != nil {
-		settings.AIModel = *body.AIModel
-	}
-	if body.AIAPIKey != nil {
-		settings.AIAPIKey = *body.AIAPIKey
-	}
+
+	// Blank the legacy scalar fields now that config lives in the map, so they
+	// don't shadow it on the next load/migrate.
+	settings.AnthropicAPIKey = ""
+	settings.AIProvider = ""
+	settings.AIBaseURL = ""
+	settings.AIModel = ""
+	settings.AIAPIKey = ""
+
 	if err := config.SaveSettings(settings); err != nil {
 		http.Error(w, "failed to save settings", http.StatusInternalServerError)
 		return

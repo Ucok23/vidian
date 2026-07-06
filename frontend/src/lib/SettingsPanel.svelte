@@ -2,27 +2,42 @@
   import { store } from './store.svelte.js';
   import Icon from './Icon.svelte';
 
-  let apiKeyInput = $state('');
-  let hasKey = $state(false);
   let isSaving = $state(false);
   let saveMessage = $state('');
 
-  // Provider config
-  let provider = $state('anthropic'); // 'anthropic' | 'openai'
-  let baseUrl = $state('');
-  let model = $state('');
-  let aiKeyInput = $state('');
-  let hasAiKey = $state(false);
+  // The four known providers. `key`/`base`/`model` flag which fields each one
+  // uses; `keyOptional` marks a key that can be blank (local models).
+  const PROVIDERS = [
+    { id: 'anthropic',         label: 'Anthropic',          key: true,  base: false, model: true,  keyPlaceholder: 'sk-ant-…',    modelPlaceholder: 'claude-sonnet-5 (default)' },
+    { id: 'openai',            label: 'OpenAI',             key: true,  base: false, model: true,  keyPlaceholder: 'sk-…',        modelPlaceholder: 'gpt-4o-mini' },
+    { id: 'openai-compatible', label: 'OpenAI-compatible',  key: true,  base: true,  model: true,  keyOptional: true, keyPlaceholder: 'sk-… (blank for local)', modelPlaceholder: 'llama3.1, …', basePlaceholder: 'http://localhost:11434/v1' },
+    { id: 'gemini',            label: 'Google Gemini',      key: true,  base: false, model: true,  keyPlaceholder: 'AIza…',       modelPlaceholder: 'gemini-2.0-flash (default)' },
+  ];
+
+  let active = $state('anthropic');
+  // Per-provider field state, keyed by provider id.
+  let baseUrl = $state({});
+  let model = $state({});
+  let keyInput = $state({});   // typed-in secret (never populated from server)
+  let hasKey = $state({});     // whether a key is already saved server-side
+
+  const current = $derived(PROVIDERS.find(p => p.id === active) || PROVIDERS[0]);
 
   async function loadStatus() {
     try {
       const res = await fetch('/api/settings');
       const data = await res.json();
-      hasKey = !!data.hasKey;
-      provider = data.aiProvider || 'anthropic';
-      baseUrl = data.aiBaseUrl || '';
-      model = data.aiModel || '';
-      hasAiKey = !!data.hasAiKey;
+      active = data.activeProvider || 'anthropic';
+      const provs = data.providers || {};
+      const bu = {}, md = {}, hk = {}, ki = {};
+      for (const p of PROVIDERS) {
+        const c = provs[p.id] || {};
+        bu[p.id] = c.baseUrl || '';
+        md[p.id] = c.model || '';
+        hk[p.id] = !!c.hasKey;
+        ki[p.id] = '';
+      }
+      baseUrl = bu; model = md; hasKey = hk; keyInput = ki;
     } catch (e) {
       // Settings status is best-effort; leave values as-is.
     }
@@ -30,8 +45,6 @@
 
   $effect(() => {
     if (store.settingsOpen) {
-      apiKeyInput = '';
-      aiKeyInput = '';
       saveMessage = '';
       loadStatus();
     }
@@ -41,27 +54,30 @@
     isSaving = true;
     saveMessage = '';
     try {
-      // Only send secret fields when the user typed something, so leaving them
-      // blank keeps the existing value instead of clearing it.
-      const body = {
-        aiProvider: provider,
-        aiBaseUrl: baseUrl,
-        aiModel: model
+      // Only send the API key when the user typed one, so leaving it blank
+      // keeps the stored value instead of clearing it.
+      const provider = {
+        baseUrl: baseUrl[active] || '',
+        model: model[active] || ''
       };
-      if (apiKeyInput) body.anthropicApiKey = apiKeyInput;
-      if (aiKeyInput) body.aiApiKey = aiKeyInput;
+      if (keyInput[active]) provider.apiKey = keyInput[active];
 
       const res = await fetch('/api/settings/save', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(body)
+        body: JSON.stringify({ activeProvider: active, provider })
       });
+      if (!res.ok) {
+        saveMessage = 'Failed: ' + (await res.text()).trim();
+        return;
+      }
       const data = await res.json();
-      hasKey = !!data.hasKey;
-      hasAiKey = !!data.hasAiKey;
-      apiKeyInput = '';
-      aiKeyInput = '';
-      saveMessage = 'Saved.';
+      const provs = data.providers || {};
+      for (const p of PROVIDERS) {
+        hasKey[p.id] = !!(provs[p.id] && provs[p.id].hasKey);
+      }
+      keyInput[active] = '';
+      saveMessage = data.configured ? 'Saved — provider ready.' : 'Saved (missing required fields).';
     } catch (e) {
       saveMessage = 'Failed to save: ' + e.message;
     } finally {
@@ -92,45 +108,47 @@
       <div class="panel-body">
         <div class="field-label">AI Provider</div>
         <p class="field-hint">
-          Powers the onboarding narrator and “Explain” feature. Everything is stored
-          locally on this machine and sent only to the endpoint you choose.
+          Powers the onboarding narrator and “Explain” feature. Configure any of the
+          providers below; the selected one is used. Everything is stored locally on
+          this machine and sent only to the endpoint you choose.
         </p>
-        <div class="provider-toggle">
-          <button class:active={provider === 'anthropic'} onclick={() => provider = 'anthropic'}>Anthropic</button>
-          <button class:active={provider === 'openai'} onclick={() => provider = 'openai'}>OpenAI-compatible</button>
+        <div class="provider-grid">
+          {#each PROVIDERS as p (p.id)}
+            <button
+              class:active={active === p.id}
+              onclick={() => active = p.id}
+            >
+              {p.label}
+              {#if hasKey[p.id] || baseUrl[p.id]}<span class="dot" title="Configured"></span>{/if}
+            </button>
+          {/each}
         </div>
 
-        {#if provider === 'anthropic'}
-          <div class="field-label">Anthropic API Key</div>
-          <p class="field-hint">
-            Sent only to Anthropic's API.
-            {#if hasKey}<span class="status-ok">A key is currently configured.</span>{/if}
-          </p>
-          <input
-            type="password"
-            placeholder={hasKey ? 'Enter a new key to replace the current one' : 'sk-ant-...'}
-            bind:value={apiKeyInput}
-          />
-          <div class="field-label mt">Model (optional)</div>
-          <input type="text" placeholder="claude-sonnet-5 (default)" bind:value={model} />
-        {:else}
-          <p class="field-hint">
-            Any OpenAI-compatible <code>/chat/completions</code> endpoint — OpenAI, or a
-            local server like Ollama or LM Studio. Point the base URL at the API root
-            (Vidian appends <code>/chat/completions</code>).
-          </p>
+        {#if current.base}
           <div class="field-label">Base URL</div>
-          <input type="text" placeholder="http://localhost:11434/v1" bind:value={baseUrl} />
-          <div class="field-label mt">Model</div>
-          <input type="text" placeholder="llama3.1, gpt-4o-mini, …" bind:value={model} />
-          <div class="field-label mt">API Key (optional for local models)</div>
           <p class="field-hint">
-            {#if hasAiKey}<span class="status-ok">A key is currently configured.</span>{/if}
+            Any OpenAI-compatible <code>/chat/completions</code> endpoint (Ollama, LM
+            Studio, vLLM…). Point at the API root; Vidian appends the path.
+          </p>
+          <input type="text" placeholder={current.basePlaceholder} bind:value={baseUrl[active]} />
+        {/if}
+
+        {#if current.model}
+          <div class="field-label" class:mt={current.base}>Model</div>
+          <input type="text" placeholder={current.modelPlaceholder} bind:value={model[active]} />
+        {/if}
+
+        {#if current.key}
+          <div class="field-label mt">
+            API Key{#if current.keyOptional} <span class="soft">(optional for local)</span>{/if}
+          </div>
+          <p class="field-hint">
+            {#if hasKey[active]}<span class="status-ok">A key is currently configured.</span>{/if}
           </p>
           <input
             type="password"
-            placeholder={hasAiKey ? 'Enter a new key to replace the current one' : 'sk-… (leave blank for local)'}
-            bind:value={aiKeyInput}
+            placeholder={hasKey[active] ? 'Enter a new key to replace the current one' : current.keyPlaceholder}
+            bind:value={keyInput[active]}
           />
         {/if}
 
@@ -218,14 +236,15 @@
     border-radius: 3px;
   }
 
-  .provider-toggle {
-    display: flex;
+  .provider-grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
     gap: 6px;
     margin-bottom: 18px;
   }
 
-  .provider-toggle button {
-    flex: 1;
+  .provider-grid button {
+    position: relative;
     background: #121214;
     border: 1px solid #2d2d34;
     color: #8e8e93;
@@ -237,15 +256,32 @@
     transition: border-color 0.12s, color 0.12s, background-color 0.12s;
   }
 
-  .provider-toggle button:hover {
+  .provider-grid button:hover {
     color: #e3e3e6;
     border-color: #3d3d50;
   }
 
-  .provider-toggle button.active {
+  .provider-grid button.active {
     background: rgba(99, 102, 241, 0.15);
     border-color: #6366f1;
     color: #a5b4fc;
+  }
+
+  .provider-grid .dot {
+    position: absolute;
+    top: 7px;
+    right: 7px;
+    width: 6px;
+    height: 6px;
+    border-radius: 50%;
+    background: #4ade80;
+  }
+
+  .soft {
+    font-weight: 400;
+    text-transform: none;
+    letter-spacing: 0;
+    color: #6b7280;
   }
 
   .field-hint {

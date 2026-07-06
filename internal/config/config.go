@@ -130,20 +130,76 @@ func GetSafePathFor(cfg *Config, reqPath string) (string, error) {
 	return GetSafePath(ws, reqPath)
 }
 
+// ProviderConfig holds one AI provider's connection settings. Which fields are
+// meaningful depends on the provider (see KnownProviders).
+type ProviderConfig struct {
+	BaseURL string `json:"baseUrl,omitempty"`
+	Model   string `json:"model,omitempty"`
+	APIKey  string `json:"apiKey,omitempty"`
+}
+
+// KnownProviders is the canonical, ordered list of provider IDs the AI layer
+// understands. The narrator and "explain" features route through whichever one
+// is active.
+var KnownProviders = []string{"anthropic", "openai", "openai-compatible", "gemini"}
+
+// IsKnownProvider reports whether id is one of KnownProviders.
+func IsKnownProvider(id string) bool {
+	for _, p := range KnownProviders {
+		if p == id {
+			return true
+		}
+	}
+	return false
+}
+
 // Settings holds user-level preferences that persist across restarts and are
-// independent of any workspace — currently just the BYO Anthropic API key
-// used by the AI onboarding narrator. Never committed to a repo.
+// independent of any workspace. It stores a config per AI provider so several
+// can be set up at once and switched between via ActiveProvider.
 type Settings struct {
+	// Multi-provider configuration.
+	ActiveProvider string                    `json:"activeProvider,omitempty"`
+	Providers      map[string]ProviderConfig `json:"providers,omitempty"`
+
+	// Legacy single-provider fields, retained so older settings.json files
+	// migrate cleanly (see migrate). New writes populate Providers instead.
 	AnthropicAPIKey string `json:"anthropicApiKey,omitempty"`
-	// AI provider selection for the narrator and "explain" features.
-	// AIProvider "" or "anthropic" uses the Anthropic Messages API with
-	// AnthropicAPIKey. AIProvider "openai" targets any OpenAI-compatible
-	// /chat/completions endpoint at AIBaseURL (e.g. a local Ollama/LM Studio
-	// server) using AIModel and the optional AIAPIKey.
-	AIProvider string `json:"aiProvider,omitempty"`
-	AIBaseURL  string `json:"aiBaseUrl,omitempty"`
-	AIModel    string `json:"aiModel,omitempty"`
-	AIAPIKey   string `json:"aiApiKey,omitempty"`
+	AIProvider      string `json:"aiProvider,omitempty"`
+	AIBaseURL       string `json:"aiBaseUrl,omitempty"`
+	AIModel         string `json:"aiModel,omitempty"`
+	AIAPIKey        string `json:"aiApiKey,omitempty"`
+}
+
+// migrate folds any legacy single-provider fields into the Providers map and
+// picks an ActiveProvider, so settings written by an older version keep working
+// without the user reconfiguring. It never overwrites an existing map entry.
+func (s *Settings) migrate() {
+	if s.Providers == nil {
+		s.Providers = map[string]ProviderConfig{}
+	}
+	setIfAbsent := func(id string, cfg ProviderConfig) {
+		if _, ok := s.Providers[id]; !ok {
+			s.Providers[id] = cfg
+		}
+	}
+	if s.AnthropicAPIKey != "" {
+		model := ""
+		if s.AIProvider == "" || s.AIProvider == "anthropic" {
+			model = s.AIModel
+		}
+		setIfAbsent("anthropic", ProviderConfig{APIKey: s.AnthropicAPIKey, Model: model})
+	}
+	if s.AIProvider == "openai" && s.AIBaseURL != "" {
+		setIfAbsent("openai-compatible", ProviderConfig{BaseURL: s.AIBaseURL, Model: s.AIModel, APIKey: s.AIAPIKey})
+	}
+	if s.ActiveProvider == "" {
+		switch {
+		case s.AIProvider == "openai":
+			s.ActiveProvider = "openai-compatible"
+		case s.AnthropicAPIKey != "":
+			s.ActiveProvider = "anthropic"
+		}
+	}
 }
 
 // settingsPathOverride lets tests redirect settings I/O to a temp dir.
@@ -178,6 +234,7 @@ func LoadSettings() (*Settings, error) {
 	if err := json.Unmarshal(data, &s); err != nil {
 		return &Settings{}, err
 	}
+	s.migrate()
 	return &s, nil
 }
 
