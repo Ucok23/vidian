@@ -15,7 +15,7 @@ When an AI generates code, or you need to quickly check a README, review a diff,
 
 - **Instant**: Opens a browser tab in under a second
 - **Lightweight**: Single binary, `< 15 MB RAM` usage
-- **Zero config**: No extensions, no language servers, no workspace setup
+- **Zero config**: No extensions, no config files, no workspace setup
 - **Read-only**: Safe to point at any directory — no accidental edits
 
 ---
