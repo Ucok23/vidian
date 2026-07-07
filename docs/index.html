@@ -723,7 +723,7 @@
   </div>
   <div class="install-block">
     <span class="prompt">$</span>
-    <span class="cmd">curl -sSL <span class="url">https://raw.githubusercontent.com/Ucok23/vidian/main/install.sh</span> | bash</span>
+    <span class="cmd">curl -sSL <span class="url">https://raw.githubusercontent.com/Ucok23/vidian/master/install.sh</span> | bash</span>
     <button class="copy-btn" onclick="copyInstall(this)">copy</button>
   </div>
 </section>
@@ -949,6 +949,46 @@
       <h3>Media Player</h3>
       <p>Video and audio files play directly in the browser. Images render inline. Binary files show a metadata card.</p>
     </div>
+
+    <div class="feature-card">
+      <div class="feature-icon purple">
+        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#bc8cff" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M12 3l1.6 4.4L18 9l-4.4 1.6L12 15l-1.6-4.4L6 9l4.4-1.6z"/><path d="M18 14l.8 2.2L21 17l-2.2.8L18 20l-.8-2.2L15 17l2.2-.8z"/>
+        </svg>
+      </div>
+      <h3>AI Explain</h3>
+      <p>Ask an AI to explain any file — or just a selection — in plain English. Bring your own key: Anthropic, OpenAI, or any OpenAI-compatible endpoint, configured per provider.</p>
+    </div>
+
+    <div class="feature-card">
+      <div class="feature-icon blue">
+        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#6366f1" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+          <circle cx="6" cy="6" r="2.5"/><circle cx="18" cy="6" r="2.5"/><circle cx="12" cy="18" r="2.5"/><line x1="8.5" y1="6" x2="15.5" y2="6"/><line x1="7.6" y1="7.8" x2="10.7" y2="15.8"/><line x1="16.4" y1="7.8" x2="13.3" y2="15.8"/>
+        </svg>
+      </div>
+      <h3>Code Intelligence</h3>
+      <p>Go-to-definition, find all references, a live symbol outline, and inline reference counts — plus peek and a copyable deep link to any file and line.</p>
+    </div>
+
+    <div class="feature-card">
+      <div class="feature-icon teal">
+        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#38d39f" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+          <circle cx="12" cy="12" r="9"/><polygon points="16 8 10.5 10.5 8 16 13.5 13.5"/>
+        </svg>
+      </div>
+      <h3>Repo Onboarding</h3>
+      <p>Open an unfamiliar project and get a deterministic profile — stack, entry points, and key files — instantly, no AI needed. Add a key for an AI-written tour on top.</p>
+    </div>
+
+    <div class="feature-card">
+      <div class="feature-icon orange">
+        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#ffa657" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+          <line x1="4" y1="20" x2="4" y2="11"/><line x1="10" y1="20" x2="10" y2="4"/><line x1="16" y1="20" x2="16" y2="14"/><line x1="20" y1="20" x2="20" y2="8"/>
+        </svg>
+      </div>
+      <h3>Repository Insights</h3>
+      <p>A dashboard of the repo's pulse — commit-activity heatmap, most-changed hot files, contributor stats, and language breakdown.</p>
+    </div>
   </div>
 </section>
 
@@ -967,7 +1007,7 @@
   <div id="tab-curl" class="install-code active">
     <button class="copy-code-btn" onclick="copyTab('curl', this)">copy</button>
     <pre><span class="c"># Download and install the latest release</span>
-<span class="s">curl</span> -sSL https://raw.githubusercontent.com/Ucok23/vidian/main/install.sh | bash
+<span class="s">curl</span> -sSL https://raw.githubusercontent.com/Ucok23/vidian/master/install.sh | bash
 
 <span class="c"># Then open any folder</span>
 <span class="s">vidian</span> .
@@ -1028,14 +1068,14 @@
     <a href="https://github.com/Ucok23/vidian" target="_blank" rel="noopener">GitHub</a>
     <a href="https://github.com/Ucok23/vidian/releases" target="_blank" rel="noopener">Releases</a>
     <a href="https://github.com/Ucok23/vidian/issues" target="_blank" rel="noopener">Issues</a>
-    <a href="https://github.com/Ucok23/vidian/blob/main/LICENSE" target="_blank" rel="noopener">MIT License</a>
+    <a href="https://github.com/Ucok23/vidian/blob/master/LICENSE" target="_blank" rel="noopener">MIT License</a>
   </div>
   <p>Built by <a href="https://github.com/Ucok23" target="_blank" rel="noopener">Ucok23</a> &middot; MIT License</p>
 </footer>
 
 <script>
   function copyInstall(btn) {
-    const text = 'curl -sSL https://raw.githubusercontent.com/Ucok23/vidian/main/install.sh | bash';
+    const text = 'curl -sSL https://raw.githubusercontent.com/Ucok23/vidian/master/install.sh | bash';
     navigator.clipboard.writeText(text).then(() => {
       btn.textContent = 'copied!';
       btn.classList.add('copied');
@@ -1044,7 +1084,7 @@
   }
 
   const tabContent = {
-    curl: 'curl -sSL https://raw.githubusercontent.com/Ucok23/vidian/main/install.sh | bash\n\nvidian .',
+    curl: 'curl -sSL https://raw.githubusercontent.com/Ucok23/vidian/master/install.sh | bash\n\nvidian .',
     go:   'go install github.com/Ucok23/vidian/cmd/vidian@latest\n\nexport PATH="$PATH:$(go env GOPATH)/bin"\n\nvidian .',
     src:  'git clone https://github.com/Ucok23/vidian.git\ncd vidian\nmake install\n\nvidian .'
   };
