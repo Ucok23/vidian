@@ -24,15 +24,19 @@ When an AI generates code, or you need to quickly check a README, review a diff,
 
 - 📁 **File Explorer** — Tree view with expand/collapse, color-coded file icons
 - 📝 **Monaco Editor** — The same editor engine as VS Code, syntax highlighting for 100+ languages
+- 🧠 **Code Intelligence** — Go-to-definition, find all references, a live symbol outline, and inline reference counts, plus peek and a copyable deep link to any file and line. Reuses a language server you already have installed (gopls, pylsp, typescript-language-server, rust-analyzer, clangd, lua-language-server, solargraph) — nothing to configure, and features degrade gracefully when no server is present.
 - 🔍 **Global Search** — Full-text content search across all files
 - ⚡ **Quick Open** — `Ctrl+P` to jump to any file instantly
-- 🖼️ **Image Preview** — View images inline, binary file metadata cards
-- 📄 **Markdown Preview** — Side-by-side rendered markdown
 - 🌿 **Git Integration**:
   - Browse commit history with full details in the main editor area
   - Side-by-side diff viewer for any changed file in a commit
   - View uncommitted changes (working tree vs HEAD)
   - Switch branches from the Git sidebar
+- 📊 **Repo doc** — A single document that orients you in an unfamiliar project: a deterministic **Overview** (stack, entry points, key files) and **Insights** (commit-activity heatmap, most-changed hot files, contributor stats, language breakdown). No AI required; add a key for an AI-written tour on top.
+- ✨ **AI Explain** — Ask an AI to explain any file, or just a selection, in plain English. Bring your own key: Anthropic, OpenAI, or any OpenAI-compatible endpoint.
+- 📄 **Markdown Preview** — Rendered by default with a "View Raw" toggle back to Monaco
+- 🗄️ **CSV & SQLite Viewer** — Browse data files and SQLite databases as tables, no spreadsheet app required
+- 🎬 **Media & Images** — Video and audio play inline, images render directly, binary files show a metadata card
 
 ---
 
@@ -124,13 +128,15 @@ Then open **[http://localhost:8080](http://localhost:8080)** in your browser.
 
 ```mermaid
 graph TD
-    Client[Browser: Svelte 5 + Monaco Editor] -->|HTTP| Server[Go HTTP Server]
+    Client[Browser: Svelte 5 + Monaco Editor] -->|HTTP + WebSocket| Server[Go HTTP Server]
     Server -->|embed.FS| Assets[Compiled Frontend Assets]
     Server -->|Safe Path Read| FS[Local Filesystem]
     Server -->|git CLI| Git[Git]
+    Server -.->|LSP over stdio, optional| Lang[Language Servers]
+    Server -.->|HTTP, optional| AI[AI Provider]
 ```
 
-The entire app ships as a **single self-contained binary** — the Svelte + Monaco frontend is compiled and embedded at build time via Go's `embed` package. No Node.js, no npm, no external dependencies at runtime.
+The entire app ships as a **single self-contained binary** — the Svelte + Monaco frontend is compiled and embedded at build time via Go's `embed` package. No Node.js, no npm, no config files. Code Intelligence and AI Explain are optional add-ons: the former shells out to a language server you already have installed, the latter to an AI provider of your choice — everything else works with zero external dependencies.
 
 ---
 
