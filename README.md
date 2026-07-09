@@ -24,7 +24,7 @@ When an AI generates code, or you need to quickly check a README, review a diff,
 
 - 📁 **File Explorer** — Tree view with expand/collapse, color-coded file icons
 - 📝 **Monaco Editor** — The same editor engine as VS Code, syntax highlighting for 100+ languages
-- 🧠 **Code Intelligence** — Go-to-definition, find all references, a live symbol outline, and inline reference counts, plus peek and a copyable deep link to any file and line. Reuses a language server you already have installed (gopls, pylsp, typescript-language-server, rust-analyzer, clangd, lua-language-server, solargraph) — nothing to configure, and features degrade gracefully when no server is present.
+- 🧠 **Code Intelligence** — Go-to-definition, find all references, a live symbol outline, and inline reference counts, plus peek and a copyable deep link to any file and line. Reuses a language server you already have installed (gopls, pylsp, typescript-language-server, rust-analyzer, clangd, lua-language-server, solargraph) — nothing to configure, and features degrade gracefully when no server is present. If one is missing, Vidian shows the install command and, for the common toolchains (Go, Python, TS/JS, Rust), can run it for you on an explicit click — installing to a user/Vidian-owned location, never the workspace you're viewing.
 - 🔍 **Global Search** — Full-text content search across all files
 - ⚡ **Quick Open** — `Ctrl+P` to jump to any file instantly
 - 🌿 **Git Integration**:

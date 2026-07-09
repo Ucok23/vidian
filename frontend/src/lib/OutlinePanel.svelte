@@ -5,6 +5,23 @@
   let symbols = $state([]);
   let loading = $state(false);
   let unsupported = $state(false);
+  let installing = $state(false);
+  let installLog = $state('');
+
+  // Run the backend install for the missing server, streaming its output.
+  async function doInstall() {
+    const issue = store.lspIssue;
+    if (!issue || installing) return;
+    installing = true;
+    installLog = '';
+    const { installLsp } = await import('./lsp.svelte.js');
+    const ok = await installLsp(issue.lang, (chunk) => { installLog += chunk; });
+    installing = false;
+    if (ok) {
+      installLog = '';
+      load(0); // server is up — symbols should resolve now
+    }
+  }
 
   // LSP SymbolKind (1-26) -> short glyph + color. Only the common ones are
   // given a distinct look; the rest fall back to a neutral dot.
@@ -95,6 +112,14 @@
           {#if store.lspIssue.install}
             <code class="outline-install">{store.lspIssue.install}</code>
           {/if}
+          {#if store.lspIssue.canInstall}
+            <button class="outline-install-btn" onclick={doInstall} disabled={installing}>
+              {installing ? 'Installing…' : `Install ${store.lspIssue.lang} server`}
+            </button>
+          {/if}
+          {#if installLog}
+            <pre class="outline-install-log">{installLog}</pre>
+          {/if}
         {:else if unsupported}
           No symbol provider for this file. Outline needs a language server
           (Go, TS/JS, Python, Rust, C/C++, Lua, Ruby).
@@ -173,6 +198,36 @@
     white-space: pre-wrap;
     word-break: break-word;
     user-select: all;
+  }
+  .outline-install-btn {
+    display: inline-flex;
+    align-items: center;
+    margin-top: 10px;
+    padding: 6px 12px;
+    background: #6366f1;
+    border: 1px solid #6366f1;
+    border-radius: 5px;
+    color: #fff;
+    font-size: 12px;
+    font-weight: 500;
+    cursor: pointer;
+  }
+  .outline-install-btn:hover:not(:disabled) { background: #818cf8; border-color: #818cf8; }
+  .outline-install-btn:disabled { opacity: 0.6; cursor: default; }
+  .outline-install-log {
+    margin-top: 10px;
+    padding: 8px;
+    max-height: 220px;
+    overflow: auto;
+    background: #0d0d10;
+    border: 1px solid #2d2d34;
+    border-radius: 5px;
+    color: #b9b9c2;
+    font-family: 'Fira Code', monospace;
+    font-size: 11px;
+    line-height: 1.5;
+    white-space: pre-wrap;
+    word-break: break-word;
   }
   .outline-item {
     display: flex;

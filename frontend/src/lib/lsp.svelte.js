@@ -28,6 +28,51 @@ async function ensureLspStatus() {
   return store.lspStatus;
 }
 
+// installLsp asks the backend to install the language server for `lang`,
+// streaming its output to onChunk as it runs. On success it clears the missing
+// -server notice and reconnects LSP for the file currently in focus. The
+// command is chosen server-side; we only name the language. Returns true if the
+// server is detected afterwards.
+export async function installLsp(lang, onChunk) {
+  const wsId = store.currentWorkspaceId;
+  const url = `/api/lsp/install${wsId ? `?ws=${encodeURIComponent(wsId)}` : ''}`;
+  let res;
+  try {
+    res = await fetch(url, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ lang })
+    });
+  } catch (err) {
+    onChunk(`Failed to start install: ${err}\n`);
+    return false;
+  }
+  if (!res.body) {
+    onChunk(`Install failed: ${res.status} ${res.statusText}\n`);
+    return false;
+  }
+  const reader = res.body.getReader();
+  const dec = new TextDecoder();
+  for (;;) {
+    const { value, done } = await reader.read();
+    if (done) break;
+    onChunk(dec.decode(value, { stream: true }));
+  }
+
+  // The status cache is now stale — force a refresh and see if the server showed up.
+  lspStatusWs = null;
+  const status = await ensureLspStatus();
+  const available = status?.[lang]?.available === true;
+  if (available) {
+    store.lspIssue = null;
+    const fname = (store.activePath || '').split('/').pop();
+    if (fname && store.workspace?.path) {
+      await initLsp(store.workspace.path, fname);
+    }
+  }
+  return available;
+}
+
 // List of file extension to language ID mapping
 const extMapping = {
   go: 'go',
@@ -80,7 +125,7 @@ export async function initLsp(workspacePath, filename) {
       activeLang = null;
       isInitialized = false;
     }
-    store.lspIssue = { lang: lspLang, install: langStatus.install || '' };
+    store.lspIssue = { lang: lspLang, install: langStatus.install || '', canInstall: !!langStatus.canInstall };
     return;
   }
   store.lspIssue = null;
