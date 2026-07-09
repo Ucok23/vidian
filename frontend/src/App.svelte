@@ -15,6 +15,16 @@
   let sidebarVisible = $state(true);
   let sidebarWidth = $state(260);
   let isResizing = $state(false);
+  let lspInstallCopied = $state(false);
+
+  // Copy the install command for the missing language server to the clipboard.
+  function copyLspInstall() {
+    const cmd = store.lspIssue?.install;
+    if (!cmd) return;
+    navigator.clipboard.writeText(cmd);
+    lspInstallCopied = true;
+    setTimeout(() => { lspInstallCopied = false; }, 1500);
+  }
 
   // Tab context menu state
   let tabContextMenu = $state({ visible: false, x: 0, y: 0, path: null });
@@ -400,6 +410,18 @@
             <span>Ln {store.cursorPos.line}, Col {store.cursorPos.column}</span>
           </div>
         {/if}
+        {#if store.lspIssue}
+          <!-- svelte-ignore a11y_click_events_have_key_events -->
+          <!-- svelte-ignore a11y_no_static_element_interactions -->
+          <div
+            class="status-item status-lsp clickable"
+            title={store.lspIssue.install ? `Code intelligence off — ${store.lspIssue.lang} language server not installed.\nInstall:  ${store.lspIssue.install}\n(click to copy)` : (store.lspIssue.message || `${store.lspIssue.lang} language server unavailable`)}
+            onclick={copyLspInstall}
+          >
+            <Icon name="sparkles" size={11} />
+            <span>{lspInstallCopied ? 'install copied' : `${store.lspIssue.lang} server missing`}</span>
+          </div>
+        {/if}
         <div class="status-item">
           <span>UTF-8</span>
         </div>
@@ -661,6 +683,14 @@
     color: #8e8e93;
     font-size: 11px;
     opacity: 0.85;
+  }
+
+  .status-lsp {
+    color: #e2c08d;
+  }
+  .status-lsp:hover {
+    background-color: rgba(226, 192, 141, 0.12);
+    color: #f0d9a8;
   }
 
   /* Tab Context Menu */

@@ -111,6 +111,7 @@ func Start(cfg *config.Config, embeddedFiles fs.FS) {
 	http.HandleFunc("/api/sqlite/tables", handleSQLiteTables)
 	http.HandleFunc("/api/sqlite/query", handleSQLiteQuery)
 	http.Handle("/api/lsp", websocket.Handler(lsp.HandleLSP))
+	http.HandleFunc("/api/lsp/status", lsp.HandleLSPStatus)
 
 	// Register Frontend serving
 	if cfg.DevMode {

@@ -41,6 +41,9 @@
     const ed = window.editorInstance;
     const model = ed?.getModel?.();
     if (!model) { symbols = []; return; }
+    // The server for this file is known-missing — show the install hint now
+    // instead of spinning through retries waiting for a session that won't open.
+    if (store.lspIssue) { symbols = []; unsupported = false; loading = false; return; }
     loading = true;
     unsupported = false;
     const { documentSymbols, lspReady } = await import('./lsp.svelte.js');
@@ -87,7 +90,12 @@
       <div class="outline-empty">Loading symbols…</div>
     {:else if symbols.length === 0}
       <div class="outline-empty">
-        {#if unsupported}
+        {#if store.lspIssue}
+          Install the {store.lspIssue.lang} language server to enable the outline.
+          {#if store.lspIssue.install}
+            <code class="outline-install">{store.lspIssue.install}</code>
+          {/if}
+        {:else if unsupported}
           No symbol provider for this file. Outline needs a language server
           (Go, TS/JS, Python, Rust, C/C++, Lua, Ruby).
         {:else}
@@ -151,6 +159,20 @@
     color: #6b7280;
     font-size: 12px;
     line-height: 1.6;
+  }
+  .outline-install {
+    display: block;
+    margin-top: 8px;
+    padding: 6px 8px;
+    background: #16161a;
+    border: 1px solid #2d2d34;
+    border-radius: 5px;
+    color: #c0c0c8;
+    font-family: 'Fira Code', monospace;
+    font-size: 11px;
+    white-space: pre-wrap;
+    word-break: break-word;
+    user-select: all;
   }
   .outline-item {
     display: flex;

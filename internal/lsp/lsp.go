@@ -2,10 +2,12 @@ package lsp
 
 import (
 	"bufio"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
 	"log"
+	"net/http"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -15,6 +17,106 @@ import (
 	"golang.org/x/net/websocket"
 	"github.com/Ucok23/vidian/internal/config"
 )
+
+// serverDef declares how to launch a language server and how to install it.
+//
+// Candidates are tried in order. A candidate containing a path separator (or a
+// leading ~/ or the {ws} placeholder) is treated as an explicit path and must
+// exist on disk; a bare name is resolved against $PATH. If none resolve and Npx
+// is set, `npx <Npx> <Args...>` is used as a last resort (npm auto-fetches the
+// package on first run). This keeps every language's discovery, arguments, and
+// install hint in one declarative place instead of a hand-written switch.
+type serverDef struct {
+	Candidates []string // {ws} expands to the workspace dir; ~/ expands to $HOME
+	Args       []string
+	Npx        string // optional npm package for an `npx` fallback
+	Install    string // human-facing install command, surfaced in the UI
+}
+
+var tsServer = serverDef{
+	Candidates: []string{
+		"{ws}/node_modules/.bin/typescript-language-server",
+		"{ws}/frontend/node_modules/.bin/typescript-language-server",
+		"typescript-language-server",
+	},
+	Args:    []string{"--stdio"},
+	Npx:     "typescript-language-server",
+	Install: "npm i -g typescript-language-server typescript",
+}
+
+var clangdServer = serverDef{
+	Candidates: []string{"clangd", "~/.local/bin/clangd"},
+	Install:    "Install clangd from your package manager (e.g. apt install clangd, brew install llvm)",
+}
+
+// servers maps a language id to its launch/install definition. Aliases (js↔ts,
+// c↔cpp) share a def.
+var servers = map[string]serverDef{
+	"go": {
+		Candidates: []string{"gopls", "~/go/bin/gopls"},
+		Args:       []string{"-mode", "stdio"},
+		Install:    "go install golang.org/x/tools/gopls@latest",
+	},
+	"python": {
+		Candidates: []string{"pylsp", "~/.local/bin/pylsp"},
+		Install:    "pipx install 'python-lsp-server[all]'  (or: pip install python-lsp-server)",
+	},
+	"typescript": tsServer,
+	"javascript": tsServer,
+	"rust": {
+		Candidates: []string{"rust-analyzer", "~/.local/bin/rust-analyzer"},
+		Install:    "rustup component add rust-analyzer",
+	},
+	"c":   clangdServer,
+	"cpp": clangdServer,
+	"lua": {
+		Candidates: []string{"lua-language-server", "~/.local/bin/lua-language-server"},
+		Install:    "Download from https://github.com/LuaLS/lua-language-server/releases",
+	},
+	"ruby": {
+		Candidates: []string{"solargraph", "~/.local/bin/solargraph"},
+		Args:       []string{"stdio"},
+		Install:    "gem install solargraph",
+	},
+}
+
+func expandHome(p string) string {
+	if strings.HasPrefix(p, "~/") {
+		return filepath.Join(os.Getenv("HOME"), p[2:])
+	}
+	return p
+}
+
+// resolveServer finds the launch command for lang within workspaceDir. It
+// returns the resolved binary path, its arguments, the install hint, and
+// whether a runnable server was found.
+func resolveServer(lang, workspaceDir string) (path string, args []string, install string, ok bool) {
+	def, exists := servers[lang]
+	if !exists {
+		return "", nil, "", false
+	}
+	for _, c := range def.Candidates {
+		c = strings.ReplaceAll(c, "{ws}", workspaceDir)
+		c = expandHome(c)
+		if strings.ContainsRune(c, os.PathSeparator) {
+			// Explicit path — must exist and be a file.
+			if fi, err := os.Stat(c); err == nil && !fi.IsDir() {
+				return c, def.Args, def.Install, true
+			}
+			continue
+		}
+		// Bare name — resolve against $PATH.
+		if lp, err := exec.LookPath(c); err == nil {
+			return lp, def.Args, def.Install, true
+		}
+	}
+	if def.Npx != "" {
+		if lp, err := exec.LookPath("npx"); err == nil {
+			return lp, append([]string{def.Npx}, def.Args...), def.Install, true
+		}
+	}
+	return "", nil, def.Install, false
+}
 
 // isCleanClose reports whether err is an expected stream-close that happens on
 // graceful shutdown or client disconnect (EOF, or a killed LSP process closing
@@ -32,6 +134,39 @@ func sendLSPError(ws *websocket.Conn, msg string) {
 	_ = websocket.Message.Send(ws, framed)
 }
 
+// sendServerUnavailable notifies the client that the requested language server
+// is not installed, carrying the install hint so the UI can show it. This is a
+// distinct method (not window/showMessage) so the client can treat it as an
+// expected, actionable state rather than a generic error.
+func sendServerUnavailable(ws *websocket.Conn, lang, install string) {
+	params, _ := json.Marshal(map[string]string{"lang": lang, "install": install})
+	body := fmt.Sprintf(`{"jsonrpc":"2.0","method":"vidian/serverUnavailable","params":%s}`, params)
+	framed := fmt.Sprintf("Content-Length: %d\r\n\r\n%s", len(body), body)
+	_ = websocket.Message.Send(ws, framed)
+}
+
+// HandleLSPStatus reports, per configured language, whether a runnable server
+// was found and how to install it otherwise. The client fetches this to avoid
+// connecting to missing servers and to surface install hints in the UI.
+func HandleLSPStatus(w http.ResponseWriter, r *http.Request) {
+	dir := ""
+	if wsCfg := config.ActiveConfig.Get(r.URL.Query().Get("ws")); wsCfg != nil {
+		dir = wsCfg.Path
+	}
+	type status struct {
+		Available bool   `json:"available"`
+		Path      string `json:"path,omitempty"`
+		Install   string `json:"install"`
+	}
+	out := make(map[string]status, len(servers))
+	for lang := range servers {
+		path, _, install, ok := resolveServer(lang, dir)
+		out[lang] = status{Available: ok, Path: path, Install: install}
+	}
+	w.Header().Set("Content-Type", "application/json")
+	_ = json.NewEncoder(w).Encode(out)
+}
+
 func HandleLSP(ws *websocket.Conn) {
 	defer ws.Close()
 
@@ -47,77 +182,20 @@ func HandleLSP(ws *websocket.Conn) {
 	}
 	workspaceDir := workspace.Path
 
-	var cmdPath string
-	var cmdArgs []string
-
-	switch lang {
-	case "go":
-		goplsPath, err := exec.LookPath("gopls")
-		if err != nil {
-			goplsPath = filepath.Join(os.Getenv("HOME"), "go", "bin", "gopls")
-		}
-		cmdPath = goplsPath
-		cmdArgs = []string{"-mode", "stdio"}
-	case "python":
-		pylspPath, err := exec.LookPath("pylsp")
-		if err != nil {
-			pylspPath = filepath.Join(os.Getenv("HOME"), ".local/bin/pylsp")
-		}
-		cmdPath = pylspPath
-		cmdArgs = []string{}
-	case "typescript", "javascript":
-		tsLspPath := filepath.Join(workspaceDir, "frontend", "node_modules", ".bin", "typescript-language-server")
-		if _, err := os.Stat(tsLspPath); err != nil {
-			cmdPath = "npx"
-			cmdArgs = []string{"typescript-language-server", "--stdio"}
-		} else {
-			cmdPath = tsLspPath
-			cmdArgs = []string{"--stdio"}
-		}
-	case "rust":
-		rustLspPath, err := exec.LookPath("rust-analyzer")
-		if err != nil {
-			rustLspPath = filepath.Join(os.Getenv("HOME"), ".local/bin/rust-analyzer")
-		}
-		cmdPath = rustLspPath
-		cmdArgs = []string{}
-	case "c", "cpp":
-		clangdPath, err := exec.LookPath("clangd")
-		if err != nil {
-			clangdPath = filepath.Join(os.Getenv("HOME"), ".local/bin/clangd")
-		}
-		cmdPath = clangdPath
-		cmdArgs = []string{}
-	case "lua":
-		luaLspPath, err := exec.LookPath("lua-language-server")
-		if err != nil {
-			luaLspPath = filepath.Join(os.Getenv("HOME"), ".local/bin/lua-language-server")
-		}
-		cmdPath = luaLspPath
-		cmdArgs = []string{}
-	case "ruby":
-		rubyLspPath, err := exec.LookPath("solargraph")
-		if err != nil {
-			rubyLspPath = filepath.Join(os.Getenv("HOME"), ".local/bin/solargraph")
-		}
-		cmdPath = rubyLspPath
-		cmdArgs = []string{"stdio"}
-	default:
+	if _, known := servers[lang]; !known {
 		log.Printf("Unsupported LSP language: %s", lang)
 		sendLSPError(ws, fmt.Sprintf("No language server configured for %q.", lang))
 		return
 	}
 
-	// For non-npx paths, verify the binary exists before trying to launch it.
-	if cmdPath != "npx" {
-		if _, err := exec.LookPath(cmdPath); err != nil {
-			if _, err2 := os.Stat(cmdPath); err2 != nil {
-				msg := fmt.Sprintf("Language server for %q not found (%s). Please install it and make sure it is on your PATH.", lang, cmdPath)
-				log.Printf("LSP binary not found: %s", cmdPath)
-				sendLSPError(ws, msg)
-				return
-			}
-		}
+	cmdPath, cmdArgs, install, ok := resolveServer(lang, workspaceDir)
+	if !ok {
+		// Missing binary is an expected, recoverable state — tell the client
+		// specifically (with the install hint) so it can surface it and fall
+		// back gracefully instead of failing silently.
+		log.Printf("LSP server for %q not found", lang)
+		sendServerUnavailable(ws, lang, install)
+		return
 	}
 
 	cmd := exec.Command(cmdPath, cmdArgs...)

@@ -7,6 +7,26 @@ let activeWs = null;   // workspace ID the socket is scoped to
 let requestId = 0;
 const pendingRequests = new Map();
 let isInitialized = false;
+let lspStatusWs = null; // workspace id the cached status in store.lspStatus is for
+
+// ensureLspStatus fetches per-language server availability once per workspace
+// and caches it on the store. Used to skip connecting to servers that aren't
+// installed and to show install hints in the UI.
+async function ensureLspStatus() {
+  const wsId = store.currentWorkspaceId;
+  if (lspStatusWs === wsId && Object.keys(store.lspStatus || {}).length) {
+    return store.lspStatus;
+  }
+  try {
+    const url = `/api/lsp/status${wsId ? `?ws=${encodeURIComponent(wsId)}` : ''}`;
+    const res = await fetch(url);
+    store.lspStatus = await res.json();
+    lspStatusWs = wsId;
+  } catch (err) {
+    console.error('Failed to fetch LSP status', err);
+  }
+  return store.lspStatus;
+}
 
 // List of file extension to language ID mapping
 const extMapping = {
@@ -30,12 +50,13 @@ const extMapping = {
 // Languages that have a backend language server wired up in internal/lsp.
 const supportedLangs = ['go', 'python', 'typescript', 'javascript', 'rust', 'c', 'cpp', 'lua', 'ruby'];
 
-export function initLsp(workspacePath, filename) {
+export async function initLsp(workspacePath, filename) {
   if (!filename) return;
   const ext = filename.split('.').pop().toLowerCase();
   const lspLang = extMapping[ext];
 
-  // Only connect for supported languages
+  // Only connect for supported languages. A file that needs no server clears
+  // any lingering "server missing" notice.
   if (!lspLang || !supportedLangs.includes(lspLang)) {
     if (ws) {
       ws.close();
@@ -43,8 +64,26 @@ export function initLsp(workspacePath, filename) {
       activeLang = null;
       isInitialized = false;
     }
+    store.lspIssue = null;
     return;
   }
+
+  // Gate on availability: if the server for this language isn't installed,
+  // surface the install hint and skip the doomed connection. Code intelligence
+  // is an enhancement — the editor works fine without it.
+  const status = await ensureLspStatus();
+  const langStatus = status?.[lspLang];
+  if (langStatus && langStatus.available === false) {
+    if (ws) {
+      ws.close();
+      ws = null;
+      activeLang = null;
+      isInitialized = false;
+    }
+    store.lspIssue = { lang: lspLang, install: langStatus.install || '' };
+    return;
+  }
+  store.lspIssue = null;
 
   // If already connected for the same language AND workspace, do nothing.
   // A workspace switch must force a reconnect so the server scopes the language
@@ -85,6 +124,12 @@ export function initLsp(workspacePath, filename) {
         // Notifications (like diagnostics)
         if (msg.method === 'textDocument/publishDiagnostics') {
           handleDiagnostics(msg.params);
+        } else if (msg.method === 'vidian/serverUnavailable') {
+          // Backstop for the availability gate (e.g. the binary vanished after
+          // the status check): surface the install hint instead of dying quietly.
+          store.lspIssue = { lang: msg.params?.lang || activeLang, install: msg.params?.install || '' };
+        } else if (msg.method === 'window/showMessage' && msg.params?.type === 1) {
+          store.lspIssue = { lang: activeLang, install: '', message: msg.params?.message };
         }
       }
     } catch (err) {
@@ -110,6 +155,7 @@ export function initLsp(workspacePath, filename) {
 
       sendNotification('initialized', {});
       isInitialized = true;
+      store.lspIssue = null; // server is up — clear any stale "missing" notice
       // Readiness flag for tests/tooling to await before exercising LSP features.
       if (typeof window !== 'undefined') window._vidianLspReady = true;
       console.log(`LSP (${lspLang}) initialized successfully`, initResult);

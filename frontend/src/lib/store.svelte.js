@@ -33,6 +33,13 @@ class AppStore {
   // Active segment of the merged Repo document ('overview' | 'insights').
   repoSegment = $state('overview');
 
+  // Per-language language-server availability, keyed by language id:
+  // { available, path, install }. Populated from /api/lsp/status.
+  lspStatus = $state({});
+  // The missing-server condition for the file currently in focus, or null when
+  // the server is available (or the file needs no server). { lang, install }.
+  lspIssue = $state(null);
+
   // Git state
   git = $state({ isGit: false, currentBranch: '', branches: [] });
   isCheckingOut = $state(false);
