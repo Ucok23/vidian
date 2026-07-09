@@ -13,8 +13,6 @@
   let isLoadingFileHistory = $state(false);
 
   // New sections state
-  let contributors = $state([]);
-  let isLoadingContributors = $state(false);
   let stashes = $state([]);
   let isLoadingStashes = $state(false);
   let tags = $state([]);
@@ -34,10 +32,14 @@
   let showFileHistory = $state(true);
   let showLineHistory = $state(true);
   let showSearch = $state(false);
-  let showContributors = $state(false);
   let showStashes = $state(false);
   let showTags = $state(false);
   let showCompare = $state(false);
+
+  // Reveals the secondary "More" tool group (search, compare, stashes, tags,
+  // branches). Collapsed by default so the primary working sections aren't
+  // buried, but a labelled divider keeps the extras discoverable.
+  let showMore = $state(false);
 
   async function loadChanges() {
     isLoadingChanges = true;
@@ -72,15 +74,6 @@
     }
     loadFileHistory(path);
   });
-
-  async function loadContributors() {
-    isLoadingContributors = true;
-    try {
-      const res = await fetch(store.apiUrl('/api/git/contributors'));
-      contributors = (await res.json()) || [];
-    } catch (e) { contributors = []; }
-    finally { isLoadingContributors = false; }
-  }
 
   async function loadStashes() {
     isLoadingStashes = true;
@@ -335,6 +328,20 @@
     </div>
   {/if}
 
+  <!-- MORE — secondary tools, collapsed by default so they don't bury the
+       primary working sections while staying visibly discoverable. -->
+  <!-- svelte-ignore a11y_click_events_have_key_events -->
+  <!-- svelte-ignore a11y_no_static_element_interactions -->
+  <div class="more-divider" onclick={() => showMore = !showMore}>
+    <span class="more-line"></span>
+    <span class="more-label">
+      <Icon name={showMore ? 'chevronDown' : 'chevronRight'} size={12} />
+      MORE
+    </span>
+    <span class="more-line"></span>
+  </div>
+
+  {#if showMore}
   <!-- SEARCH COMMITS SECTION -->
   <div class="panel-section">
     <!-- svelte-ignore a11y_click_events_have_key_events -->
@@ -405,38 +412,6 @@
                   <span class="file-path">{file.path}</span>
                 </div>
                 <span class="status-badge" style="color: {file.status === 'A' ? '#73c991' : file.status === 'D' ? '#f14c4c' : '#e2c08d'}">{file.status}</span>
-              </div>
-            {/each}
-          </div>
-        {/if}
-      </div>
-    {/if}
-  </div>
-
-  <!-- CONTRIBUTORS SECTION -->
-  <div class="panel-section">
-    <!-- svelte-ignore a11y_click_events_have_key_events -->
-    <!-- svelte-ignore a11y_no_static_element_interactions -->
-    <div class="section-header" onclick={() => { showContributors = !showContributors; if (showContributors && contributors.length === 0) loadContributors(); }}>
-      <Icon name={showContributors ? 'chevronDown' : 'chevronRight'} size={14} />
-      <span class="title">CONTRIBUTORS</span>
-    </div>
-    {#if showContributors}
-      <div class="section-content">
-        {#if isLoadingContributors}
-          <div class="loading-text">Loading…</div>
-        {:else if contributors.length === 0}
-          <div class="empty-state">No contributors found</div>
-        {:else}
-          <div class="contributors-list">
-            {#each contributors as c, i}
-              <div class="contributor-item">
-                <div class="contributor-avatar">{c.name.charAt(0).toUpperCase()}</div>
-                <div class="contributor-info">
-                  <span class="contributor-name">{c.name}</span>
-                  <span class="contributor-email">{c.email}</span>
-                </div>
-                <span class="contributor-count">{c.commits}</span>
               </div>
             {/each}
           </div>
@@ -542,6 +517,7 @@
       </div>
     {/if}
   </div>
+  {/if}
 </div>
 
 <style>
@@ -603,6 +579,17 @@
 
   .section-content {
     background-color: #1b1b1f;
+  }
+
+  /* Cap the scrollable lists so an open section (especially the default-open
+     Changes / Commits / File History) can never push the sections below it off
+     screen — each list scrolls internally instead. */
+  .changes-list,
+  .commits-list,
+  .branches-list,
+  .tags-list {
+    max-height: 260px;
+    overflow-y: auto;
   }
 
   .loading-text, .empty-state {
@@ -809,33 +796,35 @@
     overflow-x: auto;
   }
 
-  .contributors-list { display: flex; flex-direction: column; padding: 4px 0; }
-
-  .contributor-item {
+  /* MORE divider — a labelled separator that reveals the secondary tools. */
+  .more-divider {
     display: flex;
     align-items: center;
-    padding: 7px 16px;
     gap: 10px;
+    padding: 10px 16px;
+    cursor: pointer;
+    user-select: none;
   }
 
-  .contributor-avatar {
-    width: 26px;
-    height: 26px;
-    border-radius: 50%;
-    background: rgba(99, 102, 241, 0.2);
-    color: #818cf8;
-    font-size: 12px;
-    font-weight: 700;
+  .more-line {
+    flex: 1;
+    height: 1px;
+    background-color: #2d2d34;
+  }
+
+  .more-label {
     display: flex;
     align-items: center;
-    justify-content: center;
-    flex-shrink: 0;
+    gap: 4px;
+    font-size: 10px;
+    font-weight: 700;
+    letter-spacing: 0.8px;
+    color: #6b6b75;
   }
 
-  .contributor-info { flex: 1; min-width: 0; }
-  .contributor-name { display: block; font-size: 12px; color: #e3e3e6; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-  .contributor-email { display: block; font-size: 10px; color: #8e8e93; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-  .contributor-count { font-size: 11px; font-weight: 700; color: #818cf8; }
+  .more-divider:hover .more-label {
+    color: #a5b4fc;
+  }
 
   .tags-list { display: flex; flex-direction: column; padding: 4px 0; }
 

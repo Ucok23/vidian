@@ -233,19 +233,9 @@
         <!-- svelte-ignore a11y_no_static_element_interactions -->
         <div
           class="activity-btn"
-          class:active={store.activePath === 'insights:'}
-          onclick={() => store.openInsights()}
-          title="Repo Insights"
-        >
-          <Icon name="chart" size={22} />
-        </div>
-        <!-- svelte-ignore a11y_click_events_have_key_events -->
-        <!-- svelte-ignore a11y_no_static_element_interactions -->
-        <div
-          class="activity-btn"
-          class:active={store.activePath === 'onboarding:'}
-          onclick={() => store.openOnboarding()}
-          title="Onboarding"
+          class:active={store.activePath === 'repo:'}
+          onclick={() => store.openRepo()}
+          title="Repo (Overview & Insights)"
         >
           <Icon name="compass" size={22} />
         </div>
@@ -301,7 +291,7 @@
           class="tab"
           class:active={store.activePath === file.path}
           onclick={() => {
-            if (file.isCommit || file.isGraph || file.isInsights || file.isOnboarding) {
+            if (file.isCommit || file.isGraph || file.isRepo) {
               store.activeDiff = null;
               store.activePath = file.path;
             } else {
@@ -315,9 +305,7 @@
             <Icon name="branch" size={14} color="#6366f1" />
           {:else if file.isCommit}
             <Icon name="gitCommit" size={14} color="#fbbf24" />
-          {:else if file.isInsights}
-            <Icon name="chart" size={14} color="#10b981" />
-          {:else if file.isOnboarding}
+          {:else if file.isRepo}
             <Icon name="compass" size={14} color="#38bdf8" />
           {:else}
             <Icon name="file" size={14} color={getFileColor(file.name)} />

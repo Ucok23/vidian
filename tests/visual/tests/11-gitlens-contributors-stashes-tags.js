@@ -1,13 +1,13 @@
 const { test } = require('../fixtures');
 
-test('11-gitlens-contributors-stashes-tags', async ({ page, baseUrl, snap, log }) => {
+test('11-gitlens-stashes-tags', async ({ page, baseUrl, snap, log }) => {
   await page.goto(baseUrl, { waitUntil: 'networkidle' });
   await page.waitForTimeout(1500);
 
   // Require git panel
   const gitBtn = page.locator('.activity-btn[title="Source Control"]');
   if (await gitBtn.count() === 0) {
-    log('Not a git repo — skipping contributors/stashes/tags tests');
+    log('Not a git repo — skipping stashes/tags tests');
     return;
   }
 
@@ -16,51 +16,21 @@ test('11-gitlens-contributors-stashes-tags', async ({ page, baseUrl, snap, log }
   await snap('01-git-panel-open');
   log('Git panel opened');
 
-  // ── CONTRIBUTORS ──────────────────────────────────────────────────────────
+  // Contributors now lives in the Repo → Insights document, not Source Control.
   const contribHeader = page.locator('.section-header').filter({ hasText: 'CONTRIBUTORS' });
-  if (await contribHeader.count() === 0) {
-    log('CONTRIBUTORS section not found');
-    await snap('02-no-contributors');
-  } else {
-    await contribHeader.click();
-    await page.waitForTimeout(1500); // triggers API load on first open
-    await snap('02-contributors-expanded');
-    log('CONTRIBUTORS section clicked');
-
-    const contribSection = page.locator('.panel-section').filter({ hasText: 'CONTRIBUTORS' });
-
-    // Wait for contributor items to render
-    const contribItems = contribSection.locator('.contributor-item');
-    try {
-      await contribItems.first().waitFor({ state: 'visible', timeout: 5000 });
-      const count = await contribItems.count();
-      log(`Contributors found: ${count}`);
-      await snap('03-contributors-loaded');
-
-      // Log contributor names
-      for (let i = 0; i < Math.min(count, 5); i++) {
-        const item = contribItems.nth(i);
-        const name = await item.locator('.contributor-name').textContent().catch(() => '?');
-        const commits = await item.locator('.contributor-count').textContent().catch(() => '?');
-        log(`  ${name.trim()} — ${commits.trim()} commits`);
-      }
-
-      // Check avatar initials
-      const avatars = contribSection.locator('.contributor-avatar');
-      log(`Avatar elements: ${await avatars.count()}`);
-    } catch {
-      log('Contributors did not load within timeout');
-      await snap('03-contributors-timeout');
-
-      // Check for loading indicator
-      const loading = contribSection.locator('.loading-text, .spinner');
-      if (await loading.count() > 0) {
-        log('Loading indicator present');
-      }
-    }
+  if (await contribHeader.count() !== 0) {
+    throw new Error('CONTRIBUTORS should no longer appear in Source Control');
   }
+  log('Contributors correctly absent from Source Control');
 
-  await snap('04-after-contributors');
+  // Stashes/Tags/Branches/Search/Compare are grouped behind the MORE divider —
+  // reveal it so the secondary sections mount.
+  const moreDivider = page.locator('.more-divider');
+  if (await moreDivider.count() === 0) throw new Error('MORE divider not found');
+  await moreDivider.click();
+  await page.waitForTimeout(400);
+  await snap('02-more-revealed');
+  log('MORE group revealed');
 
   // ── STASHES ───────────────────────────────────────────────────────────────
   const stashHeader = page.locator('.section-header').filter({ hasText: 'STASHES' });
@@ -84,7 +54,6 @@ test('11-gitlens-contributors-stashes-tags', async ({ page, baseUrl, snap, log }
     log(`Stash entries: ${stashCount}`);
 
     // Check for empty state message
-    const emptyMsg = stashSection.locator('.empty-state, .no-items, .dim-text');
     if (stashCount === 0) {
       const emptyText = await stashSection.textContent().catch(() => '');
       if (emptyText.includes('No stashes') || emptyText.includes('no stash') || emptyText.includes('empty')) {

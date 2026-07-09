@@ -16,6 +16,13 @@ test('10-gitlens-search-compare', async ({ page, baseUrl, snap, log }) => {
   await snap('01-git-panel-open');
   log('Git panel opened');
 
+  // Search & Compare are grouped behind the MORE divider — reveal it first.
+  const moreDivider = page.locator('.more-divider');
+  if (await moreDivider.count() === 0) throw new Error('MORE divider not found');
+  await moreDivider.click();
+  await page.waitForTimeout(400);
+  log('MORE group revealed');
+
   // ── SEARCH COMMITS ────────────────────────────────────────────────────────
   const searchHeader = page.locator('.section-header').filter({ hasText: 'SEARCH COMMITS' });
   if (await searchHeader.count() === 0) {

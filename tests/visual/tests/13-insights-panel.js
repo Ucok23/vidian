@@ -4,9 +4,9 @@ test('13-insights-panel', async ({ page, baseUrl, snap, log }) => {
   await page.goto(baseUrl, { waitUntil: 'networkidle' });
   await page.waitForTimeout(1500);
 
-  // Skip if not a git repository (no insights button will be shown).
-  const insightsBtn = page.locator('.activity-btn[title="Repo Insights"]');
-  if (await insightsBtn.count() === 0) {
+  // Skip if not a git repository (no Repo button will be shown).
+  const repoBtn = page.locator('.activity-btn[title="Repo (Overview & Insights)"]');
+  if (await repoBtn.count() === 0) {
     log('Not a git repo — skipping insights panel test');
     return;
   }
@@ -14,21 +14,24 @@ test('13-insights-panel', async ({ page, baseUrl, snap, log }) => {
   await snap('01-initial-state');
   log('App loaded');
 
-  // Open the Insights panel via the activity bar icon.
-  await insightsBtn.click();
-  await page.waitForTimeout(2500); // allow all three API calls to complete
+  // Open the merged Repo document via the activity bar icon.
+  await repoBtn.click();
+  await page.waitForTimeout(800);
 
-  await snap('02-insights-opened');
-  log('Insights panel opened');
-
-  // A tab labelled "Repo Insights" must be active.
-  const insightsTab = page.locator('.tab', { hasText: 'Repo Insights' });
+  // A single tab labelled "Repo" must be active.
+  const insightsTab = page.locator('.tab', { hasText: 'Repo' });
   if (await insightsTab.count() === 0) {
-    throw new Error('"Repo Insights" tab not created in tab bar');
+    throw new Error('"Repo" tab not created in tab bar');
   }
   const isActive = await insightsTab.evaluate(el => el.classList.contains('active'));
-  if (!isActive) throw new Error('"Repo Insights" tab is not the active tab');
-  log('Repo Insights tab is active');
+  if (!isActive) throw new Error('"Repo" tab is not the active tab');
+  log('Repo tab is active');
+
+  // Switch to the Insights segment.
+  await page.locator('.segment', { hasText: 'Insights' }).click();
+  await page.waitForTimeout(2500); // allow the insights API calls to complete
+  await snap('02-insights-opened');
+  log('Insights segment opened');
 
   // The insights container must be visible.
   const insights = page.locator('.insights');

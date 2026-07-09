@@ -1,7 +1,6 @@
 <script>
   import { onMount } from 'svelte';
   import { store } from './store.svelte.js';
-  import Icon from './Icon.svelte';
 
   let activity = $state({});
   let hotFiles = $state([]);
@@ -113,54 +112,9 @@
 </script>
 
 <div class="insights">
-  <div class="header">
-    <Icon name="chart" size={20} color="#6366f1" />
-    <h1>Repository Insights</h1>
-    {#if !isLoading}
-      <span class="subtitle">{totalCommits} commits in the past year</span>
-    {/if}
-  </div>
-
   {#if isLoading}
     <div class="loading">Loading insights…</div>
   {:else}
-    <!-- REPO STATS STRIP -->
-    {#if stats}
-      <div class="stats-strip">
-        <div class="stat">
-          <span class="stat-value">{stats.totalFiles.toLocaleString()}</span>
-          <span class="stat-label">files</span>
-        </div>
-        <div class="stat-divider"></div>
-        <div class="stat">
-          <span class="stat-value">{stats.totalCommits.toLocaleString()}</span>
-          <span class="stat-label">commits</span>
-        </div>
-        <div class="stat-divider"></div>
-        <div class="stat">
-          <span class="stat-value">{stats.totalBranches}</span>
-          <span class="stat-label">branches</span>
-        </div>
-        <div class="stat-divider"></div>
-        <div class="stat">
-          <span class="stat-value">{stats.totalContributors}</span>
-          <span class="stat-label">contributors</span>
-        </div>
-        <div class="stat-divider"></div>
-        <div class="stat">
-          <span class="stat-value">{stats.totalTags}</span>
-          <span class="stat-label">tags</span>
-        </div>
-        {#if stats.firstCommitDate}
-          <div class="stat-divider"></div>
-          <div class="stat">
-            <span class="stat-value">{stats.firstCommitDate}</span>
-            <span class="stat-label">first commit</span>
-          </div>
-        {/if}
-      </div>
-    {/if}
-
     <!-- ACTIVITY HEATMAP -->
     <section class="card">
       <div class="card-title-row">
@@ -366,77 +320,11 @@
     box-sizing: border-box;
   }
 
-  .header {
-    display: flex;
-    align-items: center;
-    gap: 12px;
-    margin-bottom: 28px;
-  }
-
-  h1 {
-    font-size: 20px;
-    font-weight: 700;
-    color: #f0f0f4;
-    margin: 0;
-  }
-
-  .subtitle {
-    font-size: 13px;
-    color: #8e8e93;
-    margin-left: 4px;
-  }
-
   .loading {
     color: #8e8e93;
     font-style: italic;
     padding: 40px;
     text-align: center;
-  }
-
-  .stats-strip {
-    display: flex;
-    align-items: center;
-    gap: 0;
-    background: #1b1b20;
-    border: 1px solid #2d2d34;
-    border-radius: 10px;
-    padding: 16px 24px;
-    margin-bottom: 20px;
-    flex-wrap: wrap;
-    gap: 4px 0;
-  }
-
-  .stat {
-    display: flex;
-    flex-direction: column;
-    align-items: center;
-    padding: 0 20px;
-    flex: 1;
-    min-width: 80px;
-  }
-
-  .stat-value {
-    font-size: 20px;
-    font-weight: 700;
-    color: #a5b4fc;
-    font-variant-numeric: tabular-nums;
-    line-height: 1.2;
-  }
-
-  .stat-label {
-    font-size: 10px;
-    font-weight: 600;
-    letter-spacing: 0.5px;
-    color: #5d5d66;
-    text-transform: uppercase;
-    margin-top: 3px;
-  }
-
-  .stat-divider {
-    width: 1px;
-    height: 32px;
-    background: #2d2d34;
-    flex-shrink: 0;
   }
 
   .card {

@@ -30,6 +30,9 @@ class AppStore {
   // Cache of directory contents: path -> list of FileInfo
   dirContents = $state({});
 
+  // Active segment of the merged Repo document ('overview' | 'insights').
+  repoSegment = $state('overview');
+
   // Git state
   git = $state({ isGit: false, currentBranch: '', branches: [] });
   isCheckingOut = $state(false);
@@ -458,9 +461,10 @@ class AppStore {
     }
     const filesToKeep = [];
     for (const file of this.openFiles) {
-      // Virtual tabs (commit details, commit graph, insights) aren't backed by a
-      // file on disk — keep them as-is instead of trying to re-fetch and dropping them.
-      if (file.isCommit || file.isGraph || file.isInsights || file.isOnboarding) {
+      // Virtual tabs (commit details, commit graph, repo overview/insights)
+      // aren't backed by a file on disk — keep them as-is instead of trying to
+      // re-fetch and dropping them.
+      if (file.isCommit || file.isGraph || file.isRepo) {
         filesToKeep.push(file);
         continue;
       }
@@ -565,29 +569,19 @@ class AppStore {
     this.activePath = tabPath;
   }
 
-  openInsights() {
+  // openRepo opens the merged Repo document — a single tab hosting both the
+  // Overview (orientation) and Insights (analytics) segments. segment selects
+  // which one is shown first.
+  openRepo(segment = 'overview') {
     this.activeDiff = null;
-    const tabPath = 'insights:';
+    this.repoSegment = segment;
+    const tabPath = 'repo:';
     const exists = this.openFiles.some(f => f.path === tabPath);
     if (!exists) {
       this.openFiles.push({
-        name: 'Repo Insights',
+        name: 'Repo',
         path: tabPath,
-        isInsights: true
-      });
-    }
-    this.activePath = tabPath;
-  }
-
-  openOnboarding() {
-    this.activeDiff = null;
-    const tabPath = 'onboarding:';
-    const exists = this.openFiles.some(f => f.path === tabPath);
-    if (!exists) {
-      this.openFiles.push({
-        name: 'Onboarding',
-        path: tabPath,
-        isOnboarding: true
+        isRepo: true
       });
     }
     this.activePath = tabPath;

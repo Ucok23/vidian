@@ -7,8 +7,14 @@ test('26-onboarding-profile', async ({ page, baseUrl, snap, log }) => {
   await page.goto(baseUrl, { waitUntil: 'networkidle' });
   await page.waitForTimeout(1200);
 
-  await page.locator('.activity-btn[title="Onboarding"]').click();
+  const repoBtn = page.locator('.activity-btn[title="Repo (Overview & Insights)"]');
+  if (await repoBtn.count() === 0) {
+    log('Not a git repo — skipping onboarding profile test');
+    return;
+  }
+  await repoBtn.click();
   await page.waitForTimeout(500);
+  // The Repo document opens on the Overview (onboarding) segment by default.
   await snap('01-onboarding-opened');
 
   const panel = page.locator('.onboarding');
@@ -38,13 +44,14 @@ test('26-onboarding-profile', async ({ page, baseUrl, snap, log }) => {
   log(`Stack chips: ${stackChips.join(', ') || '(none)'}`);
   log(`Listed files (entry + key): ${keyFiles.length}`);
 
-  // Activity stats (deterministic git/file counts).
-  const stats = await page.locator('.onboarding .stats-strip .stat-value').allTextContents();
+  // Repo stats strip (deterministic git/file counts) — now shared above both
+  // Repo segments rather than inside the onboarding panel.
+  const stats = await page.locator('.repo .stats-strip .stat-value').allTextContents();
   if (stats.length > 0) {
-    log(`Activity stats: ${stats.join(' / ')}`);
+    log(`Repo stats: ${stats.join(' / ')}`);
     await snap('03-activity-stats');
   } else {
-    log('no Activity stats block (no git stats available)');
+    log('no stats block (no git stats available)');
   }
 
   if (stackChips.length === 0 && keyFiles.length === 0) {

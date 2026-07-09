@@ -32,10 +32,14 @@ build:
 ## install: Build everything and install to $(INSTALL_DIR)
 install: all
 	@echo "→ Installing $(BINARY) to $(INSTALL_DIR)..."
+	@# Copy to a temp name then atomically rename over the target. A plain cp
+	@# fails with "Text file busy" when the destination binary is currently
+	@# running; rename(2) swaps the directory entry instead, so a running
+	@# instance keeps its old (now-unlinked) inode and the next launch is new.
 	@if [ ! -w "$(INSTALL_DIR)" ]; then \
-		sudo cp $(BINARY) $(INSTALL_DIR)/$(BINARY); \
+		sudo cp $(BINARY) $(INSTALL_DIR)/$(BINARY).new && sudo mv -f $(INSTALL_DIR)/$(BINARY).new $(INSTALL_DIR)/$(BINARY); \
 	else \
-		cp $(BINARY) $(INSTALL_DIR)/$(BINARY); \
+		cp $(BINARY) $(INSTALL_DIR)/$(BINARY).new && mv -f $(INSTALL_DIR)/$(BINARY).new $(INSTALL_DIR)/$(BINARY); \
 	fi
 	@echo "✓ Installed! Run: $(BINARY) ."
 
@@ -43,7 +47,10 @@ install: all
 user-install: all
 	@echo "→ Installing $(BINARY) to $(HOME)/.local/bin ..."
 	@mkdir -p $(HOME)/.local/bin
-	@cp $(BINARY) $(HOME)/.local/bin/$(BINARY)
+	@# Temp-then-rename so re-installing over a running instance doesn't hit
+	@# "Text file busy" (see install target above).
+	@cp $(BINARY) $(HOME)/.local/bin/$(BINARY).new
+	@mv -f $(HOME)/.local/bin/$(BINARY).new $(HOME)/.local/bin/$(BINARY)
 	@echo "✓ Installed! Run: $(BINARY) ."
 	@echo "  Tip: add $(HOME)/.local/bin to your PATH if needed."
 
