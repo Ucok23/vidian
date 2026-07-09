@@ -326,6 +326,13 @@ func handleFile(w http.ResponseWriter, r *http.Request) {
 			for len(sample) > 0 && sample[len(sample)-1]&0xC0 == 0x80 {
 				sample = sample[:len(sample)-1]
 			}
+			// After dropping trailing continuation bytes, a multi-byte
+			// lead byte may remain whose continuation bytes fell past the
+			// cut. Drop it too so utf8.Valid doesn't fail on the partial
+			// rune and misclassify a valid text file as binary.
+			if len(sample) > 0 && sample[len(sample)-1] >= 0xC0 {
+				sample = sample[:len(sample)-1]
+			}
 		}
 		for _, b := range sample {
 			if b == 0 {
