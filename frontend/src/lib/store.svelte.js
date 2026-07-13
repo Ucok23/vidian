@@ -10,6 +10,13 @@ class AppStore {
   activePath = $state(null);
   sidebarTab = $state('explorer'); // 'explorer', 'search'
   settingsOpen = $state(false);
+  // True on narrow/touch viewports (phones). Drives the responsive shell:
+  // overlay sidebar drawer, bottom nav, and Monaco touch tuning. Kept in sync
+  // with a matchMedia listener set up in init().
+  isMobile = $state(false);
+  // On mobile the sidebar is a full-screen overlay drawer rather than a column;
+  // this tracks whether it's currently open.
+  mobileDrawerOpen = $state(false);
   searchQuery = $state('');
   searchResults = $state([]);
   isSearching = $state(false);
@@ -59,8 +66,21 @@ class AppStore {
     return `${API_BASE}${path}${sep}ws=${encodeURIComponent(this.currentWorkspaceId)}`;
   }
 
+  // setupResponsive wires a matchMedia listener so isMobile tracks the viewport.
+  // The breakpoint matches the CSS in App.svelte (max-width: 768px).
+  setupResponsive() {
+    if (typeof window === 'undefined' || !window.matchMedia) return;
+    const mq = window.matchMedia('(max-width: 768px)');
+    const apply = () => { this.isMobile = mq.matches; };
+    apply();
+    // addEventListener('change') is the modern API; older Safari needs addListener.
+    if (mq.addEventListener) mq.addEventListener('change', apply);
+    else mq.addListener(apply);
+  }
+
   async init() {
     try {
+      this.setupResponsive();
       await this.loadWorkspaces();
       if (this.workspaces.length === 0) {
         console.error("No workspaces registered");
@@ -163,6 +183,9 @@ class AppStore {
 
   async openFile(path, jumpToLine = null) {
     this.activeDiff = null;
+    // On mobile the sidebar is an overlay; picking a file should reveal the
+    // editor beneath it.
+    if (this.isMobile) this.mobileDrawerOpen = false;
     // Check if already open
     const exists = this.openFiles.some(f => f.path === path);
     if (!exists) {

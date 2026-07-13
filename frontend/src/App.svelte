@@ -17,6 +17,11 @@
   let isResizing = $state(false);
   let lspInstallCopied = $state(false);
 
+  // On desktop the sidebar is a resizable column (sidebarVisible); on mobile it
+  // is a full-screen overlay drawer (store.mobileDrawerOpen). One derived flag
+  // decides whether the sidebar markup is rendered in either mode.
+  let showSidebar = $derived(store.isMobile ? store.mobileDrawerOpen : sidebarVisible);
+
   // Copy the install command for the missing language server to the clipboard.
   function copyLspInstall() {
     const cmd = store.lspIssue?.install;
@@ -31,7 +36,23 @@
 
   function showTabContextMenu(e, path) {
     e.preventDefault();
-    tabContextMenu = { visible: true, x: e.clientX, y: e.clientY, path };
+    openTabMenuAt(e.clientX, e.clientY, path);
+  }
+
+  // Clamp the menu into the viewport so it doesn't overflow a phone's edge.
+  function openTabMenuAt(x, y, path) {
+    const clampedX = Math.min(x, window.innerWidth - 190);
+    tabContextMenu = { visible: true, x: Math.max(8, clampedX), y, path };
+  }
+
+  // Long-press opens the same menu on touch devices.
+  let longPressTimer = null;
+  function handleTabTouchStart(e, path) {
+    const t = e.touches[0];
+    longPressTimer = setTimeout(() => openTabMenuAt(t.clientX, t.clientY, path), 500);
+  }
+  function cancelLongPress() {
+    clearTimeout(longPressTimer);
   }
 
   function hideTabContextMenu() {
@@ -84,12 +105,30 @@
   }
 
   function toggleSidebarTab(tab) {
+    if (store.isMobile) {
+      // Tapping the active tab's nav button closes the drawer; any other
+      // switches to that tab and opens it.
+      if (store.mobileDrawerOpen && store.sidebarTab === tab) {
+        store.mobileDrawerOpen = false;
+      } else {
+        store.sidebarTab = tab;
+        store.mobileDrawerOpen = true;
+      }
+      return;
+    }
     if (store.sidebarTab === tab) {
       sidebarVisible = !sidebarVisible;
     } else {
       store.sidebarTab = tab;
       sidebarVisible = true;
     }
+  }
+
+  // Reveal the sidebar in whichever mode is active. Used by editor-triggered
+  // flows (references, AI, line history) that need the panel visible.
+  function revealSidebar() {
+    if (store.isMobile) store.mobileDrawerOpen = true;
+    else sidebarVisible = true;
   }
 
   // Handle global shortcuts
@@ -104,7 +143,7 @@
     if ((e.ctrlKey || e.metaKey) && e.shiftKey && e.key === 'F') {
       e.preventDefault();
       store.sidebarTab = 'search';
-      sidebarVisible = true;
+      revealSidebar();
       // Focus search input
       setTimeout(() => {
         const input = document.querySelector('.search-box input');
@@ -136,21 +175,21 @@
   $effect(() => {
     if (store.lineHistory) {
       store.sidebarTab = 'git';
-      sidebarVisible = true;
+      revealSidebar();
     }
   });
 
   // Reveal the sidebar when a references lookup starts from the editor.
   $effect(() => {
     if (store.references && store.sidebarTab === 'references') {
-      sidebarVisible = true;
+      revealSidebar();
     }
   });
 
   // Reveal the sidebar when an AI explanation starts from the editor.
   $effect(() => {
     if (store.aiExplain && store.sidebarTab === 'ai') {
-      sidebarVisible = true;
+      revealSidebar();
     }
   });
 
@@ -265,8 +304,15 @@
   </div>
 
   <!-- Sidebar Panel -->
-  {#if sidebarVisible}
-    <div class="sidebar" style="width: {sidebarWidth}px">
+  {#if showSidebar}
+    <!-- On mobile the sidebar floats over the editor; a backdrop catches taps
+         outside it to dismiss. -->
+    {#if store.isMobile}
+      <!-- svelte-ignore a11y_click_events_have_key_events -->
+      <!-- svelte-ignore a11y_no_static_element_interactions -->
+      <div class="drawer-backdrop" onclick={() => store.mobileDrawerOpen = false}></div>
+    {/if}
+    <div class="sidebar" class:mobile-drawer={store.isMobile} style="width: {sidebarWidth}px">
       {#if store.sidebarTab === 'explorer'}
         <Explorer />
       {:else if store.sidebarTab === 'search'}
@@ -282,12 +328,14 @@
       {/if}
     </div>
 
-    <!-- svelte-ignore a11y_no_static_element_interactions -->
-    <div
-      class="resize-handle"
-      class:resizing={isResizing}
-      onmousedown={startResize}
-    ></div>
+    {#if !store.isMobile}
+      <!-- svelte-ignore a11y_no_static_element_interactions -->
+      <div
+        class="resize-handle"
+        class:resizing={isResizing}
+        onmousedown={startResize}
+      ></div>
+    {/if}
   {/if}
 
   <!-- Main View Area -->
@@ -309,6 +357,9 @@
             }
           }}
           oncontextmenu={(e) => showTabContextMenu(e, file.path)}
+          ontouchstart={(e) => handleTabTouchStart(e, file.path)}
+          ontouchend={cancelLongPress}
+          ontouchmove={cancelLongPress}
           title={file.path}
         >
           {#if file.isGraph}
@@ -722,5 +773,107 @@
     height: 1px;
     background-color: #3d3d44;
     margin: 4px 0;
+  }
+
+  /* Drawer backdrop (mobile only; hidden until rendered) */
+  .drawer-backdrop {
+    display: none;
+  }
+
+  /* ============================================================= */
+  /* Mobile layout: reflow the three-column IDE into a single      */
+  /* column with an overlay sidebar drawer and a bottom nav bar.   */
+  /* Reading-only, so this keeps the same components — just         */
+  /* rearranged for a phone-sized, touch-driven viewport.          */
+  /* ============================================================= */
+  @media (max-width: 768px) {
+    .app-container {
+      flex-direction: column;
+      /* dvh tracks the visible viewport as mobile browser chrome
+         shows/hides; vh would leave the bottom nav under the URL bar. */
+      height: 100dvh;
+    }
+
+    /* Main editor area fills the space above the bottom nav. */
+    .main-area {
+      order: 1;
+      flex: 1 1 auto;
+      height: auto;
+      min-height: 0;
+    }
+
+    /* Activity bar becomes a thumb-reachable bottom nav. */
+    .activity-bar {
+      order: 3;
+      width: 100%;
+      height: auto;
+      flex-direction: row;
+      justify-content: space-around;
+      align-items: center;
+      border-right: none;
+      border-top: 1px solid #2d2d34;
+      padding: 4px 0;
+      padding-bottom: calc(4px + env(safe-area-inset-bottom));
+      z-index: 110;
+    }
+    .activity-bar .top-items,
+    .activity-bar .bottom-items {
+      display: flex;
+      flex-direction: row;
+      align-items: center;
+    }
+    .activity-btn {
+      width: 52px;
+      height: 44px;
+    }
+    /* Move the active indicator from the left edge to the top edge. */
+    .activity-btn.active::before {
+      left: 8px;
+      right: 8px;
+      top: 0;
+      bottom: auto;
+      width: auto;
+      height: 3px;
+      border-radius: 0 0 4px 4px;
+    }
+
+    /* Sidebar floats over the editor as a drawer. Overrides the inline
+       desktop width, so !important is required. */
+    .sidebar.mobile-drawer {
+      position: fixed;
+      top: 0;
+      left: 0;
+      bottom: 0;
+      width: min(86vw, 360px) !important;
+      z-index: 100;
+      box-shadow: 2px 0 28px rgba(0, 0, 0, 0.55);
+    }
+
+    .drawer-backdrop {
+      display: block;
+      position: fixed;
+      inset: 0;
+      background: rgba(0, 0, 0, 0.5);
+      z-index: 90;
+    }
+
+    /* No hover on touch — controls that reveal on hover must stay visible. */
+    .close-icon {
+      color: #8e8e93;
+    }
+
+    /* Roomier tap targets in the tab strip. */
+    .tabs-bar {
+      height: 42px;
+    }
+    .tab {
+      min-width: 132px;
+      padding: 0 14px;
+    }
+
+    /* Reclaim vertical space: the dense desktop status bar is dropped. */
+    .status-bar {
+      display: none;
+    }
   }
 </style>

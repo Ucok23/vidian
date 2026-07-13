@@ -37,6 +37,7 @@ When an AI generates code, or you need to quickly check a README, review a diff,
 - 📄 **Markdown Preview** — Rendered by default with a "View Raw" toggle back to Monaco
 - 🗄️ **CSV & SQLite Viewer** — Browse data files and SQLite databases as tables, no spreadsheet app required
 - 🎬 **Media & Images** — Video and audio play inline, images render directly, binary files show a metadata card
+- 📱 **Mobile-friendly** — On phone-sized screens the layout reflows to a single column: the sidebar becomes a tap-to-open drawer, the activity bar moves to a thumb-reachable bottom nav, and the editor word-wraps with the minimap off. Since Vidian already listens on your LAN, open `http://<your-computer-ip>:PORT` from a phone on the same network to read your code from the couch
 
 ---
 

@@ -34,6 +34,22 @@
 
   const isMarkdown = $derived(store.activeFile?.name && store.activeFile.name.toLowerCase().endsWith('.md'));
 
+  // Re-tune the live editor when the viewport crosses the mobile breakpoint
+  // (e.g. rotating a phone or resizing a window across 768px).
+  $effect(() => {
+    const mobile = store.isMobile;
+    if (!editor) return;
+    editor.updateOptions({
+      minimap: { enabled: !mobile },
+      wordWrap: mobile ? 'on' : 'off',
+      scrollbar: {
+        verticalScrollbarSize: mobile ? 14 : 10,
+        horizontalScrollbarSize: mobile ? 14 : 10,
+        useShadows: false
+      }
+    });
+  });
+
   $effect(() => {
     if (store.activePath) {
       const isMd = store.activeFile?.name && store.activeFile.name.toLowerCase().endsWith('.md');
@@ -134,7 +150,10 @@
         fontFamily: "'Fira Code', Menlo, Monaco, 'Courier New', monospace",
         originalEditable: false,
         lineHeight: 22,
-        renderSideBySide: true
+        // Side-by-side halves are too narrow to read on a phone; stack the
+        // diff inline instead.
+        renderSideBySide: !store.isMobile,
+        minimap: { enabled: !store.isMobile }
       });
 
       const ext = '.' + activeDiff.path.split('.').pop().toLowerCase();
@@ -528,8 +547,12 @@
       fontSize: 14,
       fontFamily: "'Fira Code', Menlo, Monaco, 'Courier New', monospace",
       minimap: {
-        enabled: true
+        // The minimap is dead weight on a phone-width screen.
+        enabled: !store.isMobile
       },
+      // Wrap long lines on mobile so reading doesn't require horizontal
+      // scrolling on a narrow viewport.
+      wordWrap: store.isMobile ? 'on' : 'off',
       scrollBeyondLastLine: false,
       cursorBlinking: 'smooth',
       cursorSmoothCaretAnimation: 'on',
@@ -540,8 +563,9 @@
       },
       lineHeight: 22,
       scrollbar: {
-        verticalScrollbarSize: 10,
-        horizontalScrollbarSize: 10,
+        // Larger scrollbars are easier to grab with a thumb.
+        verticalScrollbarSize: store.isMobile ? 14 : 10,
+        horizontalScrollbarSize: store.isMobile ? 14 : 10,
         useShadows: false
       },
       overviewRulerLanes: 0,
@@ -1402,6 +1426,32 @@
     height: 14px;
     background: rgba(255, 255, 255, 0.1);
     margin: 0 2px;
+  }
+
+  /* Mobile: the floating action toolbar can't fit across a phone; turn it
+     into a horizontally scrollable strip that never clips, and keep room for
+     the View Raw toggle at the right. */
+  @media (max-width: 768px) {
+    .editor-actions {
+      left: 6px;
+      right: 112px;
+      top: 6px;
+      max-width: none;
+      overflow-x: auto;
+      scrollbar-width: none;
+      justify-content: flex-start;
+    }
+    .editor-actions::-webkit-scrollbar {
+      display: none;
+    }
+    .editor-actions button,
+    .act-sep {
+      flex-shrink: 0;
+    }
+    .preview-toggle-btn {
+      top: 6px;
+      right: 8px;
+    }
   }
 
   /* Gutter heatmap classes */
