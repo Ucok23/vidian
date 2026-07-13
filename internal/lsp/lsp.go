@@ -11,6 +11,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"sync"
 
@@ -93,29 +94,75 @@ var servers = map[string]serverDef{
 	},
 }
 
+// homeDir returns the user's home directory, falling back to $HOME. On Windows
+// $HOME is usually unset, so os.UserHomeDir (which reads %USERPROFILE%) is the
+// portable source of truth.
+func homeDir() string {
+	if h, err := os.UserHomeDir(); err == nil && h != "" {
+		return h
+	}
+	return os.Getenv("HOME")
+}
+
 func expandHome(p string) string {
-	if strings.HasPrefix(p, "~/") {
-		return filepath.Join(os.Getenv("HOME"), p[2:])
+	if strings.HasPrefix(p, "~/") || strings.HasPrefix(p, `~\`) {
+		return filepath.Join(homeDir(), p[2:])
 	}
 	return p
 }
 
 // vidianLspDir is where Vidian installs language servers it manages itself, so
-// installs never touch the workspace being viewed. Honors XDG_DATA_HOME.
+// installs never touch the workspace being viewed. On Windows it uses
+// %LOCALAPPDATA%; elsewhere it honors XDG_DATA_HOME, falling back to
+// ~/.local/share.
 func vidianLspDir() string {
+	if runtime.GOOS == "windows" {
+		if base := os.Getenv("LOCALAPPDATA"); base != "" {
+			return filepath.Join(base, "vidian", "lsp")
+		}
+	}
 	base := os.Getenv("XDG_DATA_HOME")
 	if base == "" {
-		base = filepath.Join(os.Getenv("HOME"), ".local", "share")
+		base = filepath.Join(homeDir(), ".local", "share")
 	}
 	return filepath.Join(base, "vidian", "lsp")
 }
 
 // expandPlaceholders resolves {ws}, {vlsp}, and a leading ~/ in a candidate or
-// install-argv token.
+// install-argv token, then normalizes path separators for the host OS so
+// slash-written candidates like "{ws}/node_modules/.bin/x" work on Windows.
 func expandPlaceholders(p, workspaceDir string) string {
 	p = strings.ReplaceAll(p, "{ws}", workspaceDir)
 	p = strings.ReplaceAll(p, "{vlsp}", vidianLspDir())
-	return expandHome(p)
+	return filepath.FromSlash(expandHome(p))
+}
+
+// isPathLike reports whether a candidate is an explicit filesystem path (as
+// opposed to a bare command name resolved against $PATH). We check for either
+// separator because candidates are authored with "/" but workspace roots on
+// Windows arrive with "\".
+func isPathLike(c string) bool {
+	return strings.ContainsAny(c, `/\`)
+}
+
+// executableCandidates returns the on-disk paths to test for an explicit path
+// candidate. On Windows an extensionless candidate may actually be a .exe/.cmd
+// wrapper (npm's node_modules/.bin/* installs .cmd shims, gopls installs
+// gopls.exe), so we also try the PATHEXT extensions.
+func executableCandidates(p string) []string {
+	out := []string{p}
+	if runtime.GOOS == "windows" && filepath.Ext(p) == "" {
+		exts := os.Getenv("PATHEXT")
+		if exts == "" {
+			exts = ".COM;.EXE;.BAT;.CMD"
+		}
+		for _, e := range strings.Split(exts, ";") {
+			if e = strings.TrimSpace(e); e != "" {
+				out = append(out, p+strings.ToLower(e))
+			}
+		}
+	}
+	return out
 }
 
 // resolveServer finds the launch command for lang within workspaceDir. It
@@ -128,10 +175,13 @@ func resolveServer(lang, workspaceDir string) (path string, args []string, insta
 	}
 	for _, c := range def.Candidates {
 		c = expandPlaceholders(c, workspaceDir)
-		if strings.ContainsRune(c, os.PathSeparator) {
-			// Explicit path — must exist and be a file.
-			if fi, err := os.Stat(c); err == nil && !fi.IsDir() {
-				return c, def.Args, def.Install, true
+		if isPathLike(c) {
+			// Explicit path — must exist and be a file. On Windows the real
+			// binary may carry a .exe/.cmd extension the candidate omits.
+			for _, cand := range executableCandidates(c) {
+				if fi, err := os.Stat(cand); err == nil && !fi.IsDir() {
+					return cand, def.Args, def.Install, true
+				}
 			}
 			continue
 		}

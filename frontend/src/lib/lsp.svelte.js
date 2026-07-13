@@ -1,4 +1,5 @@
 import monaco from './monaco.js';
+import { pathToFileUri, workspaceFileUri } from './paths.js';
 import { store } from './store.svelte.js';
 
 let ws = null;
@@ -187,7 +188,7 @@ export async function initLsp(workspacePath, filename) {
       // Send initialize request to language server
       const initResult = await sendRequest('initialize', {
         processId: null,
-        rootUri: `file://${workspacePath}`,
+        rootUri: pathToFileUri(workspacePath),
         capabilities: {
           textDocument: {
             hover: { contentFormat: ['markdown', 'plaintext'] },
@@ -259,7 +260,7 @@ export function sendDidOpen(path, content, filename) {
 
   sendNotification('textDocument/didOpen', {
     textDocument: {
-      uri: `file://${store.workspace.path}/${path}`,
+      uri: workspaceFileUri(store.workspace.path, path),
       languageId: languageId,
       version: 1,
       text: content

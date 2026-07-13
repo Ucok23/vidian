@@ -1,4 +1,5 @@
 import { tick } from 'svelte';
+import { fileUriToRelPath } from './paths.js';
 
 const API_BASE = ''; // Same host
 
@@ -277,15 +278,11 @@ class AppStore {
     }
   }
 
-  // uriToRelPath converts an LSP file:// URI into a workspace-relative path,
-  // mirroring the codeEditorService patch in Editor.svelte.
+  // uriToRelPath converts an LSP file:// URI into a workspace-relative path.
+  // Delegates to the shared helper so POSIX and Windows (drive letters,
+  // backslashes, case-insensitive roots) are handled in one place.
   uriToRelPath(uri) {
-    let p = uri.replace(/^file:\/\//, '');
-    try { p = decodeURIComponent(p); } catch { /* leave as-is */ }
-    const wsPath = this.workspace.path;
-    if (wsPath && p.startsWith(wsPath)) p = p.slice(wsPath.length);
-    if (p.startsWith('/')) p = p.slice(1);
-    return p;
+    return fileUriToRelPath(uri, this.workspace.path);
   }
 
   // beginReferences primes the references panel with a loading state for the

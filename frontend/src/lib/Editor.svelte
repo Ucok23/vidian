@@ -2,6 +2,7 @@
   import { onMount, onDestroy } from 'svelte';
   import { store } from './store.svelte.js';
   import monaco from './monaco.js';
+  import { workspaceFileUri } from './paths.js';
 
   import MarkdownPreview from './MarkdownPreview.svelte';
   import CsvViewer from './CsvViewer.svelte';
@@ -100,8 +101,10 @@
       const latestContent = file.content;
 
       if (!model) {
-        // Construct absolute file URI matching the LSP workspace path
-        const uri = monaco.Uri.parse(`file://${store.workspace.path}/${file.path}`);
+        // Construct absolute file URI matching the LSP workspace path. Must be
+        // byte-identical to the didOpen URI in lsp.svelte.js — both go through
+        // workspaceFileUri — so diagnostics match this model on every OS.
+        const uri = monaco.Uri.parse(workspaceFileUri(store.workspace.path, file.path));
         model = monaco.editor.getModel(uri);
         
         if (!model) {
@@ -604,15 +607,7 @@
       rawService.openCodeEditor = async (modelInput, options, sideBySide) => {
         const uri = modelInput.resource;
         if (uri) {
-          const wsPath = store.workspace.path;
-          let relPath = uri.path;
-          if (relPath.startsWith(wsPath)) {
-            relPath = relPath.slice(wsPath.length);
-          }
-          if (relPath.startsWith('/')) {
-            relPath = relPath.slice(1);
-          }
-          
+          const relPath = store.uriToRelPath(uri.toString());
           const line = modelInput.options?.selection ? modelInput.options.selection.startLineNumber : 1;
           store.openFile(relPath, line);
           return editor;
