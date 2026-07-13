@@ -515,6 +515,22 @@
     await store.buildReferences(word.word, locations);
   }
 
+  // triggerCallHierarchy resolves the call-hierarchy anchor for the symbol at
+  // `position` and opens the Call Hierarchy panel, auto-expanding the root one
+  // level (callers by default) so it isn't empty on open.
+  async function triggerCallHierarchy(position) {
+    if (!editor || !position) return;
+    const model = editor.getModel();
+    if (!model) return;
+    const word = model.getWordAtPosition(position);
+    if (!word) return;
+    store.beginCallHierarchy(word.word, 'incoming');
+    const { prepareCallHierarchy } = await import('./lsp.svelte.js');
+    const items = await prepareCallHierarchy(model, position);
+    store.buildCallHierarchy(word.word, items, 'incoming');
+    for (const root of store.callHierarchy?.roots ?? []) await store.expandNode(root);
+  }
+
   // explainActive sends the current selection (or the whole file) to the AI
   // provider and shows the result in the AI sidebar panel.
   let copiedLink = $state(false);
@@ -754,6 +770,16 @@
       contextMenuGroupId: 'navigation',
       contextMenuOrder: 1.5,
       run: (ed) => triggerReferences(ed.getPosition())
+    });
+
+    // Context-menu + Shift+Alt+H entry for "show call hierarchy".
+    editor.addAction({
+      id: 'vidian.callHierarchy',
+      label: 'Show Call Hierarchy',
+      keybindings: [monaco.KeyMod.Shift | monaco.KeyMod.Alt | monaco.KeyCode.KeyH],
+      contextMenuGroupId: 'navigation',
+      contextMenuOrder: 1.6,
+      run: (ed) => triggerCallHierarchy(ed.getPosition())
     });
   });
 

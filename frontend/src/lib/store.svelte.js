@@ -28,6 +28,10 @@ class AppStore {
   // References ("find all callers") result for the symbol under the cursor.
   // { symbol, loading, error, groups: [{ path, items: [{ line, column, preview }] }] }
   references = $state(null);
+  // Call hierarchy tree for the symbol under the cursor. Lazily expanded.
+  // { symbol, direction: 'incoming'|'outgoing', loading, error, roots: [node] }
+  // where node = { item, name, detail, path, line, expanded, loading, loaded, children }
+  callHierarchy = $state(null);
   // AI explanation of the active file/selection.
   // { title, loading, error, text }
   aiExplain = $state(null);
@@ -148,6 +152,7 @@ class AppStore {
     this.lineHistory = null;
     this.compareResult = null;
     this.references = null;
+    this.callHierarchy = null;
     this.aiExplain = null;
     await this.loadWorkspaceData();
   }
@@ -395,6 +400,78 @@ class AppStore {
 
     groups.sort((a, b) => a.path.localeCompare(b.path));
     this.references = { symbol: symbol || 'symbol', loading: false, error: null, groups };
+  }
+
+  // beginCallHierarchy primes the Call Hierarchy panel with a loading state and
+  // opens its tab. direction is 'incoming' (callers) or 'outgoing' (callees).
+  beginCallHierarchy(symbol, direction = 'incoming') {
+    this.callHierarchy = {
+      symbol: symbol || 'symbol', direction,
+      loading: true, error: null, roots: []
+    };
+    this.sidebarTab = 'callHierarchy';
+  }
+
+  clearCallHierarchy() {
+    this.callHierarchy = null;
+  }
+
+  // _callNode wraps a raw CallHierarchyItem into a collapsible tree node.
+  _callNode(item) {
+    return {
+      item,
+      name: item.name,
+      detail: item.detail || '',
+      path: this.uriToRelPath(item.uri),
+      line: (item.selectionRange?.start?.line ?? item.range?.start?.line ?? 0) + 1,
+      expanded: false, loading: false, loaded: false,
+      children: []
+    };
+  }
+
+  // buildCallHierarchy turns prepareCallHierarchy items into root tree nodes.
+  buildCallHierarchy(symbol, items, direction) {
+    if (!items || items.length === 0) {
+      this.callHierarchy = { symbol: symbol || 'symbol', direction, loading: false, error: null, roots: [] };
+      return;
+    }
+    this.callHierarchy = {
+      symbol: symbol || 'symbol', direction, loading: false, error: null,
+      roots: items.map(it => this._callNode(it))
+    };
+  }
+
+  // toggleCallDirection flips between callers (incoming) and callees (outgoing),
+  // re-anchoring on the same root symbols so the user keeps their place.
+  async toggleCallDirection() {
+    const ch = this.callHierarchy;
+    if (!ch || !ch.roots.length) return;
+    const dir = ch.direction === 'incoming' ? 'outgoing' : 'incoming';
+    const roots = ch.roots.map(r => this._callNode(r.item));
+    this.callHierarchy = { ...ch, direction: dir, roots };
+    // Re-expand the roots one level under the new direction.
+    for (const root of this.callHierarchy.roots) await this.expandNode(root);
+  }
+
+  // expandNode lazily fetches a node's callers/callees the first time it opens.
+  // A cycle guard (matching an ancestor's path:line) stops recursive call graphs
+  // from expanding forever.
+  async expandNode(node, ancestors = new Set()) {
+    node.expanded = !node.expanded;
+    if (!node.expanded || node.loaded) return;
+    node.loading = true;
+    const { incomingCalls, outgoingCalls } = await import('./lsp.svelte.js');
+    const dir = this.callHierarchy?.direction || 'incoming';
+    const calls = dir === 'incoming'
+      ? await incomingCalls(node.item)
+      : await outgoingCalls(node.item);
+    const seen = new Set(ancestors);
+    seen.add(`${node.path}:${node.line}`);
+    node.children = calls
+      .map(c => this._callNode(dir === 'incoming' ? c.from : c.to))
+      .filter(child => !seen.has(`${child.path}:${child.line}`));
+    node.loaded = true;
+    node.loading = false;
   }
 
   closeFile(path) {

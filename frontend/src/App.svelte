@@ -9,6 +9,7 @@
   import SettingsPanel from './lib/SettingsPanel.svelte';
   import GitPanel from './lib/GitPanel.svelte';
   import ReferencesPanel from './lib/ReferencesPanel.svelte';
+  import CallHierarchyPanel from './lib/CallHierarchyPanel.svelte';
   import OutlinePanel from './lib/OutlinePanel.svelte';
   import AiPanel from './lib/AiPanel.svelte';
 
@@ -186,6 +187,13 @@
     }
   });
 
+  // Reveal the sidebar when a call-hierarchy lookup starts from the editor.
+  $effect(() => {
+    if (store.callHierarchy && store.sidebarTab === 'callHierarchy') {
+      revealSidebar();
+    }
+  });
+
   // Reveal the sidebar when an AI explanation starts from the editor.
   $effect(() => {
     if (store.aiExplain && store.sidebarTab === 'ai') {
@@ -251,6 +259,19 @@
           title="References"
         >
           <Icon name="references" size={22} />
+        </div>
+      {/if}
+
+      {#if store.callHierarchy}
+        <!-- svelte-ignore a11y_click_events_have_key_events -->
+        <!-- svelte-ignore a11y_no_static_element_interactions -->
+        <div
+          class="activity-btn"
+          class:active={sidebarVisible && store.sidebarTab === 'callHierarchy'}
+          onclick={() => toggleSidebarTab('callHierarchy')}
+          title="Call Hierarchy"
+        >
+          <Icon name="network" size={22} />
         </div>
       {/if}
 
@@ -321,6 +342,8 @@
         <GitPanel />
       {:else if store.sidebarTab === 'references'}
         <ReferencesPanel />
+      {:else if store.sidebarTab === 'callHierarchy'}
+        <CallHierarchyPanel />
       {:else if store.sidebarTab === 'outline'}
         <OutlinePanel />
       {:else if store.sidebarTab === 'ai'}

@@ -193,7 +193,8 @@ export async function initLsp(workspacePath, filename) {
             hover: { contentFormat: ['markdown', 'plaintext'] },
             definition: { dynamicRegistration: true },
             references: { dynamicRegistration: true },
-            documentSymbol: { hierarchicalDocumentSymbolSupport: true }
+            documentSymbol: { hierarchicalDocumentSymbolSupport: true },
+            callHierarchy: { dynamicRegistration: true }
           }
         }
       });
@@ -316,6 +317,51 @@ export async function documentSymbols(model) {
     return Array.isArray(res) ? res : [];
   } catch (err) {
     console.error('LSP documentSymbol failed', err);
+    return [];
+  }
+}
+
+// prepareCallHierarchy resolves the call-hierarchy anchor item(s) for the
+// symbol at `position`. These CallHierarchyItem handles are what incoming/
+// outgoingCalls operate on. Returns [] if the server can't answer.
+export async function prepareCallHierarchy(model, position) {
+  if (!isInitialized) return [];
+  try {
+    const res = await sendRequest('textDocument/prepareCallHierarchy', {
+      textDocument: { uri: model.uri.toString() },
+      position: { line: position.lineNumber - 1, character: position.column - 1 }
+    });
+    return Array.isArray(res) ? res : res ? [res] : [];
+  } catch (err) {
+    console.error('LSP prepareCallHierarchy failed', err);
+    return [];
+  }
+}
+
+// incomingCalls returns the callers of a CallHierarchyItem. Each result is
+// { from: CallHierarchyItem, fromRanges: Range[] }: `from` is the calling
+// symbol, `fromRanges` the individual call sites within it. Returns [] if
+// unavailable.
+export async function incomingCalls(item) {
+  if (!isInitialized) return [];
+  try {
+    const res = await sendRequest('callHierarchy/incomingCalls', { item });
+    return Array.isArray(res) ? res : [];
+  } catch (err) {
+    console.error('LSP incomingCalls failed', err);
+    return [];
+  }
+}
+
+// outgoingCalls returns the callees of a CallHierarchyItem. Each result is
+// { to: CallHierarchyItem, fromRanges: Range[] }. Returns [] if unavailable.
+export async function outgoingCalls(item) {
+  if (!isInitialized) return [];
+  try {
+    const res = await sendRequest('callHierarchy/outgoingCalls', { item });
+    return Array.isArray(res) ? res : [];
+  } catch (err) {
+    console.error('LSP outgoingCalls failed', err);
     return [];
   }
 }
