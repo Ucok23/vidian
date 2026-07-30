@@ -11,6 +11,7 @@
   import CommitViewer from './CommitViewer.svelte';
   import CommitGraph from './CommitGraph.svelte';
   import RepoPanel from './RepoPanel.svelte';
+  import GoReviewPanel from './GoReviewPanel.svelte';
 
   let editorContainer = $state(null);
   let editor = $state.raw(null);
@@ -815,6 +816,9 @@
   {:else if store.activeFile?.isRepo}
     <!-- Repo — Overview + Insights -->
     <RepoPanel />
+  {:else if store.activeFile?.isGoReview}
+    <!-- Go Review — deterministic findings (episodes 02/03/04/07) -->
+    <GoReviewPanel />
   {:else if !store.activePath}
     <!-- Empty State / Welcome Screen -->
     <div class="welcome-screen">
@@ -942,7 +946,7 @@
     </button>
   {/if}
 
-  {#if store.activePath && !store.activeFile?.isBinary && !store.activeFile?.isImage && !store.activeFile?.isVideo && !store.activeFile?.isAudio && !store.activeFile?.isCSV && !store.activeFile?.isSQLite && !store.activeFile?.isCommit && !store.activeFile?.isGraph && !store.activeFile?.isRepo && !store.activeDiff}
+  {#if store.activePath && !store.activeFile?.isBinary && !store.activeFile?.isImage && !store.activeFile?.isVideo && !store.activeFile?.isAudio && !store.activeFile?.isCSV && !store.activeFile?.isSQLite && !store.activeFile?.isCommit && !store.activeFile?.isGraph && !store.activeFile?.isRepo && !store.activeFile?.isGoReview && !store.activeDiff}
     <div class="editor-actions">
       <button onclick={explainActive} title="Explain this file (or the current selection) with AI">
         <Icon name="sparkles" size={11} /> Explain

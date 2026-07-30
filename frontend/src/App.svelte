@@ -288,6 +288,19 @@
         </div>
       {/if}
 
+      {#if store.goReviewStatus?.isGoModule}
+        <!-- svelte-ignore a11y_click_events_have_key_events -->
+        <!-- svelte-ignore a11y_no_static_element_interactions -->
+        <div
+          class="activity-btn"
+          class:active={store.activePath === 'goreview:'}
+          onclick={() => store.openGoReview()}
+          title="Go Review"
+        >
+          <Icon name="shieldCheck" size={22} />
+        </div>
+      {/if}
+
       {#if store.git.isGit}
         <!-- svelte-ignore a11y_click_events_have_key_events -->
         <!-- svelte-ignore a11y_no_static_element_interactions -->
@@ -372,7 +385,7 @@
           class="tab"
           class:active={store.activePath === file.path}
           onclick={() => {
-            if (file.isCommit || file.isGraph || file.isRepo) {
+            if (file.isCommit || file.isGraph || file.isRepo || file.isGoReview) {
               store.activeDiff = null;
               store.activePath = file.path;
             } else {
@@ -391,6 +404,8 @@
             <Icon name="gitCommit" size={14} color="#fbbf24" />
           {:else if file.isRepo}
             <Icon name="compass" size={14} color="#38bdf8" />
+          {:else if file.isGoReview}
+            <Icon name="shieldCheck" size={14} color="#818cf8" />
           {:else}
             <Icon name="file" size={14} color={getFileColor(file.name)} />
           {/if}

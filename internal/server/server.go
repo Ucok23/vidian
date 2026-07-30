@@ -23,6 +23,7 @@ import (
 
 	"github.com/Ucok23/vidian/internal/config"
 	"github.com/Ucok23/vidian/internal/git"
+	"github.com/Ucok23/vidian/internal/goreview"
 	"github.com/Ucok23/vidian/internal/lsp"
 )
 
@@ -113,6 +114,8 @@ func Start(cfg *config.Config, embeddedFiles fs.FS) {
 	http.Handle("/api/lsp", websocket.Handler(lsp.HandleLSP))
 	http.HandleFunc("/api/lsp/status", lsp.HandleLSPStatus)
 	http.HandleFunc("/api/lsp/install", lsp.HandleLSPInstall)
+	http.HandleFunc("/api/goreview/status", goreview.HandleStatus)
+	http.HandleFunc("/api/goreview/run", goreview.HandleRun)
 
 	// Register Frontend serving
 	if cfg.DevMode {

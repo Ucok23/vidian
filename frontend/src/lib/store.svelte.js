@@ -36,6 +36,11 @@ class AppStore {
   // AI explanation of the active file/selection.
   // { title, loading, error, text }
   aiExplain = $state(null);
+  // Whether the current workspace is a Go module, drives the Go Review tab.
+  goReviewStatus = $state({ isGoModule: false });
+  // Deterministic Go Review report (episodes 02/03/04/07).
+  // { loading, error, data: Report|null }
+  goReview = $state(null);
   
   // File tree expanded paths
   expandedPaths = $state(new Set());
@@ -126,6 +131,51 @@ class AppStore {
     this.expandedPaths.add('');
     this.expandedPaths = new Set(this.expandedPaths);
     await this.loadGit();
+    this.goReview = null;
+    await this.loadGoReviewStatus();
+  }
+
+  // loadGoReviewStatus checks whether the current workspace is a Go module,
+  // to decide whether the Go Review tab should be shown at all.
+  async loadGoReviewStatus() {
+    try {
+      const res = await fetch(this.apiUrl('/api/goreview/status'));
+      this.goReviewStatus = await res.json();
+    } catch (err) {
+      console.error("Failed to check Go Review status", err);
+      this.goReviewStatus = { isGoModule: false };
+    }
+  }
+
+  // openGoReview opens the Go Review document as a single full tab (like
+  // openRepo), rather than a cramped sidebar panel — there's a lot to read
+  // per section (repo map, package boundaries, interfaces, context grep).
+  openGoReview() {
+    this.activeDiff = null;
+    const tabPath = 'goreview:';
+    const exists = this.openFiles.some(f => f.path === tabPath);
+    if (!exists) {
+      this.openFiles.push({ name: 'Go Review', path: tabPath, isGoReview: true });
+    }
+    this.activePath = tabPath;
+  }
+
+  // runGoReview executes the full deterministic review (episodes 02/03/04/07)
+  // and stores the report.
+  async runGoReview() {
+    this.goReview = { loading: true, error: null, data: this.goReview?.data || null };
+    try {
+      const res = await fetch(this.apiUrl('/api/goreview/run'));
+      if (!res.ok) {
+        const errText = await res.text();
+        this.goReview = { loading: false, error: errText, data: null };
+        return;
+      }
+      const data = await res.json();
+      this.goReview = { loading: false, error: null, data };
+    } catch (err) {
+      this.goReview = { loading: false, error: String(err), data: null };
+    }
   }
 
   // syncUrl keeps ?ws=<id> in the address bar so a refresh stays on the same
@@ -568,7 +618,7 @@ class AppStore {
       // Virtual tabs (commit details, commit graph, repo overview/insights)
       // aren't backed by a file on disk — keep them as-is instead of trying to
       // re-fetch and dropping them.
-      if (file.isCommit || file.isGraph || file.isRepo) {
+      if (file.isCommit || file.isGraph || file.isRepo || file.isGoReview) {
         filesToKeep.push(file);
         continue;
       }
