@@ -11,6 +11,7 @@ import (
 	"path/filepath"
 	"regexp"
 	"strings"
+	"sync"
 )
 
 // CommandResult is the outcome of one real command run against the module.
@@ -55,19 +56,32 @@ func runCmd(dir, name string, env []string, args ...string) CommandResult {
 func runBuildReview(dir string, _ ModuleInfo) BuildReport {
 	var report BuildReport
 
-	tmp, err := os.MkdirTemp("", "vidian-goreview-build-*")
-	if err == nil {
-		defer os.RemoveAll(tmp)
-		report.Build = runCmd(dir, "go", nil, "build", "-o", tmp+string(os.PathSeparator), "./...")
-	}
-
-	report.Vet = runCmd(dir, "go", nil, "vet", "./...")
-
-	tmp2, err := os.MkdirTemp("", "vidian-goreview-cgofree-*")
-	if err == nil {
-		defer os.RemoveAll(tmp2)
-		report.CGOFreeBuild = runCmd(dir, "go", []string{"CGO_ENABLED=0"}, "build", "-o", tmp2+string(os.PathSeparator), "./...")
-	}
+	// Three independent `go` invocations over the whole module — each one
+	// can take a while on a real codebase, so they run concurrently instead
+	// of back to back.
+	var wg sync.WaitGroup
+	wg.Add(3)
+	go func() {
+		defer wg.Done()
+		tmp, err := os.MkdirTemp("", "vidian-goreview-build-*")
+		if err == nil {
+			defer os.RemoveAll(tmp)
+			report.Build = runCmd(dir, "go", nil, "build", "-o", tmp+string(os.PathSeparator), "./...")
+		}
+	}()
+	go func() {
+		defer wg.Done()
+		report.Vet = runCmd(dir, "go", nil, "vet", "./...")
+	}()
+	go func() {
+		defer wg.Done()
+		tmp2, err := os.MkdirTemp("", "vidian-goreview-cgofree-*")
+		if err == nil {
+			defer os.RemoveAll(tmp2)
+			report.CGOFreeBuild = runCmd(dir, "go", []string{"CGO_ENABLED=0"}, "build", "-o", tmp2+string(os.PathSeparator), "./...")
+		}
+	}()
+	wg.Wait()
 
 	// -trimpath: a convention check across the files that actually invoke
 	// the build, not the source tree itself.

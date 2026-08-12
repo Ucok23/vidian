@@ -19,6 +19,7 @@ import (
 	"regexp"
 	"sort"
 	"strings"
+	"sync"
 )
 
 // Status is a cheap check for whether a workspace is a Go module at all,
@@ -101,6 +102,13 @@ type goListPackage struct {
 // listPackages runs `go list -json ./...` in dir and decodes the
 // newline-concatenated JSON stream it produces (one object per package, not
 // a JSON array).
+//
+// Note a gap this leaves: a directory whose build constraints exclude every
+// file in it (a cgo-archive-only main, a platform-gated main, etc.) is
+// dropped from `./...` entirely — `go list` exits 0 with no error and just
+// never mentions it, with or without -e. buildRepoMap compensates by
+// scanning the file tree directly for a `package main` in any directory
+// that pkgs doesn't cover, since that's the only way to find it.
 func listPackages(dir string) ([]goListPackage, error) {
 	cmd := exec.Command("go", "list", "-json", "./...")
 	cmd.Dir = dir
@@ -141,7 +149,9 @@ type HotFile struct {
 
 // Entrypoint is a `main` package discovered under the module.
 type Entrypoint struct {
-	Dir string `json:"dir"`
+	Dir           string `json:"dir"`
+	BuildTagGated bool   `json:"buildTagGated,omitempty"`
+	Note          string `json:"note,omitempty"`
 }
 
 // RepoMap is the episode-02 artifact: one page, five sections.
@@ -225,14 +235,34 @@ func Run(dir string) (*Report, error) {
 	}
 
 	report := &Report{Module: mod}
+
+	// The AST-only passes are fast (in-process parsing, no subprocesses) and
+	// run up front. Dependencies/Build/Lint each shell out to `go build`,
+	// `go vet`, golangci-lint, govulncheck, etc. — each one independently
+	// slow on a real codebase — so they run concurrently rather than back
+	// to back; wall-clock time drops to roughly the slowest of the three
+	// instead of their sum.
 	report.RepoMap = buildRepoMap(dir, mod, pkgs)
 	report.PackageFindings = findPackageBoundaryIssues(mod, pkgs)
 	report.Interfaces = findInterfacesAtWrongEnd(dir, mod, pkgs)
-	report.ContextFindings = findContextIssues(dir, mod)
-	report.Dependencies = runDependencyReview(dir, mod, pkgs)
-	report.Build = runBuildReview(dir, mod)
-	report.Lint = runLintReview(dir, mod)
+	report.ContextFindings = findContextIssues(dir, mod, pkgs)
 	report.Concurrency = runConcurrencyReview(dir, mod, pkgs)
+
+	var wg sync.WaitGroup
+	wg.Add(3)
+	go func() {
+		defer wg.Done()
+		report.Dependencies = runDependencyReview(dir, mod, pkgs)
+	}()
+	go func() {
+		defer wg.Done()
+		report.Build = runBuildReview(dir, mod)
+	}()
+	go func() {
+		defer wg.Done()
+		report.Lint = runLintReview(dir, mod)
+	}()
+	wg.Wait()
 
 	return report, nil
 }
@@ -295,7 +325,18 @@ func buildRepoMap(dir string, mod ModuleInfo, pkgs []goListPackage) RepoMap {
 		return layers[i].ImportPath < layers[j].ImportPath
 	})
 	rm.Layers = layers
-	sort.Slice(rm.Entrypoints, func(i, j int) bool { return rm.Entrypoints[i].Dir < rm.Entrypoints[j].Dir })
+
+	// go list ./... silently drops any directory where build constraints
+	// exclude every file in it (a cgo-archive-only or platform-gated main,
+	// for example) — it exits 0 with no error, so pkgs never mentions that
+	// directory at all, not even with -e. The only way to find a `main`
+	// hiding behind a build tag is to check directories go list didn't
+	// cover, which the hot-files walk below is already visiting anyway.
+	knownDirs := map[string]bool{}
+	for _, p := range pkgs {
+		knownDirs[p.Dir] = true
+	}
+	gatedMainDirs := map[string]string{} // dir -> file that declares package main
 
 	// Hot files + test ratio: walk the tree once.
 	var hot []HotFile
@@ -305,7 +346,8 @@ func buildRepoMap(dir string, mod ModuleInfo, pkgs []goListPackage) RepoMap {
 		}
 		if info.IsDir() {
 			name := info.Name()
-			if name == "vendor" || name == "node_modules" || name == ".git" || name == "dist" {
+			if name == "vendor" || name == "node_modules" || name == ".git" || name == "dist" || name == "testdata" ||
+				strings.HasPrefix(name, ".") || strings.HasPrefix(name, "_") {
 				return filepath.SkipDir
 			}
 			return nil
@@ -313,9 +355,18 @@ func buildRepoMap(dir string, mod ModuleInfo, pkgs []goListPackage) RepoMap {
 		if !strings.HasSuffix(path, ".go") {
 			return nil
 		}
+		isTest := strings.HasSuffix(path, "_test.go")
+		pdir := filepath.Dir(path)
+		if !isTest && !knownDirs[pdir] {
+			if _, already := gatedMainDirs[pdir]; !already {
+				if data, err := os.ReadFile(path); err == nil && packageMainRe.Match(data) {
+					gatedMainDirs[pdir] = filepath.Base(path)
+				}
+			}
+		}
 		lines := countLines(path)
 		rel, _ := filepath.Rel(dir, path)
-		if strings.HasSuffix(path, "_test.go") {
+		if isTest {
 			rm.TestLines += lines
 		} else {
 			rm.NonTestLines += lines
@@ -329,6 +380,16 @@ func buildRepoMap(dir string, mod ModuleInfo, pkgs []goListPackage) RepoMap {
 	}
 	rm.HotFiles = hot
 
+	for pdir, file := range gatedMainDirs {
+		rel, _ := filepath.Rel(dir, pdir)
+		rm.Entrypoints = append(rm.Entrypoints, Entrypoint{
+			Dir:           rel,
+			BuildTagGated: true,
+			Note:          "package main in " + file + " is excluded by its build constraints under the default build — not visible to a plain `go build ./...`.",
+		})
+	}
+	sort.Slice(rm.Entrypoints, func(i, j int) bool { return rm.Entrypoints[i].Dir < rm.Entrypoints[j].Dir })
+
 	if len(rm.Entrypoints) == 0 {
 		rm.Unknowns = append(rm.Unknowns, "No `main` package found under this module — entrypoint unknown.")
 	}
@@ -338,6 +399,8 @@ func buildRepoMap(dir string, mod ModuleInfo, pkgs []goListPackage) RepoMap {
 
 	return rm
 }
+
+var packageMainRe = regexp.MustCompile(`(?m)^package\s+main\s*$`)
 
 func countLines(path string) int {
 	f, err := os.Open(path)
@@ -593,14 +656,9 @@ var (
 
 // findContextIssues implements episode 07's greps plus two AST checks
 // (context in a struct field, ctx not the first parameter).
-func findContextIssues(dir string, mod ModuleInfo) []ContextFinding {
+func findContextIssues(dir string, mod ModuleInfo, pkgs []goListPackage) []ContextFinding {
 	fset := token.NewFileSet()
 	findings := []ContextFinding{}
-
-	pkgs, err := listPackages(dir)
-	if err != nil {
-		return findings
-	}
 
 	for _, p := range pkgs {
 		if !isInternal(mod, p.ImportPath) {

@@ -52,7 +52,7 @@
         {#if report.repoMap.entrypoints?.length}
           <div class="chip-row">
             {#each report.repoMap.entrypoints as e}
-              <code class="chip">{e.dir || '.'}</code>
+              <code class="chip" class:gated={e.buildTagGated} title={e.note || ''}>{e.dir || '.'}{e.buildTagGated ? ' ⚑' : ''}</code>
             {/each}
           </div>
         {:else}
@@ -494,6 +494,10 @@
     background: rgba(129, 140, 248, 0.1);
     border-radius: 4px;
     padding: 3px 8px;
+  }
+  .chip.gated {
+    color: #fbbf24;
+    background: rgba(251, 191, 36, 0.1);
   }
 
   .tbl { width: 100%; border-collapse: collapse; font-size: 12px; }
